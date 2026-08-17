@@ -4,12 +4,16 @@ Desktop notification bundle for DeepSeek Harness: plays a sound and optionally p
 
 ## Install
 
-```powershell
-pnpm run pack
-pnpm dsh plugin --profile web add D:\codes\dsh-configure\dsh-notify-desktop\dsh-notify-desktop-0.2.0.tgz
+```sh
+dsh plugin --profile web add github:JochenYang/dsh-plugins#path:/packages/dsh-notify-desktop
 ```
 
-The success sound lives at `C:\Users\Administrator\.dsh\sounds\finish.wav`; errors use the Windows system exclamation unless `errorSoundPath` is set.
+Restart dsh after installing.
+
+## Sounds
+
+- **Success sound**: the package bundles `sounds/finish.wav`; on first load it is copied to `<dshHome>/sounds/finish.wav` automatically. To use your own, place a file at that path (or set `successSoundPath`).
+- **Error sound**: Windows system exclamation unless `errorSoundPath` is set.
 
 ## Config (cordis.patch.yml)
 

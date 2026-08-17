@@ -28,19 +28,16 @@ DeepSeek Harness 用量热力图插件：每日/按模型 的 token 用量、缓
 
 ## 安装
 
-```powershell
-# 在 bundle 目录
-pnpm run pack                     # build + build:client + 剥离 devDependencies 打包
-
-# 安装进 web profile（注意用 corepack pnpm@11.7.0，profile store 是 v11）
-dsh plugin --profile web add D:\codes\dsh-configure\dsh-usage-heatmap\dsh-usage-heatmap-0.1.0.tgz
+```sh
+# 安装进 web profile
+ dsh plugin --profile web add github:JochenYang/dsh-plugins#path:/packages/dsh-usage-heatmap
 dsh --profile web --dump-config | Select-String -Pattern usage-heatmap
 
 # 重启 DSH（bundle 增删需重启宿主；客户端 bundle 进 boot graph 也依赖重启）
 ```
 
-> 改代码后重装：pnpm 对**同版本号**的 tgz 会跳过刷新（"Already up to date"），
-> 必须 `dsh plugin --profile web remove dsh-usage-heatmap` 再 add，或直接升版本号。
+> 改代码后同步：`git push` 后在 profile 目录执行 `pnpm update dsh-usage-heatmap`
+> （github 安装按 commit 检测，无需升版本号）。
 >
 > 开发期迭代：客户端 bundle（`lib/client.js`）由 web server 每次从磁盘读取（`cache-control: no-cache`），
 > 只改客户端代码时把新 bundle 拷进 `profiles/web/node_modules/dsh-usage-heatmap/lib/` 并刷新页面即可，

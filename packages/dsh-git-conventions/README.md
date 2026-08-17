@@ -19,12 +19,11 @@ Checks:
 
 ## Install
 
-```powershell
-pnpm run pack    # build + pack（tarball 不含 devDependencies）
-pnpm dsh plugin --profile web add D:\codes\dsh-configure\dsh-git-conventions\dsh-git-conventions-0.1.0.tgz
+```sh
+dsh plugin --profile web add github:JochenYang/dsh-plugins#path:/packages/dsh-git-conventions
 ```
 
-Use the tarball, not the directory: a `link:` install resolves the bundle at its real path, so its `@deepseek-ai/*` imports cannot reach the profile's flat `node_modules`; a tarball install places the package under `profiles/web/node_modules/.pnpm`, whose parent-walk resolves them.
+Restart dsh after installing.
 
 ## Develop
 

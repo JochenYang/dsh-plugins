@@ -7,12 +7,8 @@
 ## 安装
 
 ```sh
-# 在 dsh-vision-bridge 目录
-pnpm install
-pnpm run pack          # 产出 dsh-vision-bridge-0.1.0.tgz
-
 # 加入 Web profile（需要重启 DSH Web profile 生效）
-dsh plugin --profile web add file:D:/codes/dsh-configure/dsh-vision-bridge/dsh-vision-bridge-0.1.0.tgz
+dsh plugin --profile web add github:JochenYang/dsh-plugins#path:/packages/dsh-vision-bridge
 ```
 
 ## 配置
