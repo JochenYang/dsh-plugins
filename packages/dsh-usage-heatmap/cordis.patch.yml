@@ -1,0 +1,57 @@
+# dsh-usage-heatmap — 用量热力图
+# pricing: 每 1M token 的美元价格；provider/model 精确匹配，未匹配的模型不计成本。
+#
+# DeepSeek-V4 API 新定价（北京时间 2026-08-17 00:00 生效，单位 ¥/1M tokens）：
+#   V4-Flash  空闲: 缓存命中输入 0.05 / 未命中输入 1.5 / 输出 4.5
+#   V4-Flash  高峰: 缓存命中输入 0.10 / 未命中输入 3.0 / 输出 9.0
+#   V4-Pro    空闲: 缓存命中输入 0.15 / 未命中输入 4.5 / 输出 13.5
+#   V4-Pro    高峰: 缓存命中输入 0.30 / 未命中输入 9.0 / 输出 27.0
+#   高峰时段 = 北京时间 9:00-12:00、14:00-18:00；高峰价格恒为空闲的 2 倍。
+#
+# 注意：本插件按“每路由单一价格”估算，无法表达高峰/空闲双档。
+# 以下按【空闲时段】价折算为美元（汇率按 7.2），即估算下限；
+# 实际成本介于本表结果与 2 倍之间（本机近 30 天实测高峰占比 21.6%，≈1.22 倍）。
+- insert:
+    - id: usage-heatmap
+      name: dsh-usage-heatmap
+      config:
+        storePath: ""
+        backfillOnStart: true
+        rescanMinutes: 5
+        pricing:
+          - provider: opencode-go
+            model: deepseek-v4-flash
+            input: 0.21
+            output: 0.63
+            cacheRead: 0.007
+            cacheWrite: 0.21
+          - provider: opencode-go
+            model: deepseek-v4-pro
+            input: 0.63
+            output: 1.88
+            cacheRead: 0.021
+            cacheWrite: 0.63
+          - provider: deepseek-official
+            model: deepseek-v4-flash
+            input: 0.21
+            output: 0.63
+            cacheRead: 0.007
+            cacheWrite: 0.21
+          - provider: deepseek-official
+            model: deepseek-v4-pro
+            input: 0.63
+            output: 1.88
+            cacheRead: 0.021
+            cacheWrite: 0.63
+          - provider: deepseek
+            model: deepseek-chat
+            input: 0.28
+            output: 0.42
+            cacheRead: 0.07
+            cacheWrite: 0.28
+          - provider: deepseek
+            model: deepseek-reasoner
+            input: 0.56
+            output: 1.68
+            cacheRead: 0.14
+            cacheWrite: 0.56

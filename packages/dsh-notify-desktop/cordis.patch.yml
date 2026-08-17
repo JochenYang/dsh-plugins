@@ -1,0 +1,8 @@
+- insert:
+    - id: notify-desktop
+      name: dsh-notify-desktop
+      config:
+        minTurnDurationMs: 30000
+        notifyOnJobDone: true
+        notifyOnToolError: true
+        cooldownMs: 5000

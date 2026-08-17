@@ -1,0 +1,29 @@
+{
+  "name": "dsh-notify-desktop",
+  "version": "0.2.0",
+  "description": "Desktop notification bundle for DeepSeek Harness: sounds + ntfy push for long turns, job settlement, and tool failures",
+  "type": "module",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.js --external:@deepseek-ai/*",
+    "typecheck": "tsc --noEmit",
+    "pack": "node scripts/pack.mjs",
+    "prepack": "pnpm run build"
+  }
+}
+

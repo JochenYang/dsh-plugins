@@ -1,0 +1,17 @@
+# dsh-vision-bridge — 最小识图插件
+# 外部视觉 API 配置留空时回退到环境变量 CUSTOM_BASE_URL / CUSTOM_MODEL_NAME / CUSTOM_API_KEY
+- insert:
+    - id: vision-bridge
+      name: dsh-vision-bridge
+      config:
+        baseUrl: ""
+        model: ""
+        apiKey: ""
+        language: zh
+        timeoutMs: 60000
+        maxImageBytes: 10485760
+        pasteStorage: cache
+        # auto: 模型支持原生图片→原生附件；否则缓存+路径标记
+        # path:  总是缓存+路径标记（纯文本流程）
+        # native: 从不拦截（纯多模态用户）
+        pasteMode: auto
