@@ -6,6 +6,7 @@
   "main": "lib/index.js",
   "files": [
     "lib",
+    "sounds",
     "cordis.patch.yml"
   ],
   "dsh": {
@@ -26,4 +27,3 @@
     "prepack": "pnpm run build"
   }
 }
-

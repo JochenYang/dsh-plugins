@@ -1,7 +1,8 @@
-// src/index.ts
+// ../../dsh-plugins/packages/dsh-notify-desktop/src/index.ts
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 var name = "dsh-notify-desktop";
@@ -62,7 +63,17 @@ function pushNtfy(baseUrl, topic, title, message, logError) {
 }
 function apply(ctx, config) {
   const home = resolveDshHome();
-  const successSound = config.successSoundPath ? { kind: "file", path: config.successSoundPath } : { kind: "file", path: join(home, "sounds", "finish.wav") };
+  const homeSound = join(home, "sounds", "finish.wav");
+  const packagedSound = join(dirname(fileURLToPath(import.meta.url)), "..", "sounds", "finish.wav");
+  if (!existsSync(homeSound) && existsSync(packagedSound)) {
+    try {
+      mkdirSync(dirname(homeSound), { recursive: true });
+      copyFileSync(packagedSound, homeSound);
+    } catch (error) {
+      ctx.logger("dsh-notify-desktop").warn(`notify bundled sound copy failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const successSound = config.successSoundPath ? { kind: "file", path: config.successSoundPath } : { kind: "file", path: homeSound };
   const errorSound = config.errorSoundPath ? { kind: "file", path: config.errorSoundPath } : { kind: "exclamation" };
   const logError = (message) => {
     ctx.logger("dsh-notify-desktop").warn(message);

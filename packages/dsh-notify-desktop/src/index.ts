@@ -10,8 +10,9 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -129,9 +130,20 @@ export function pushNtfy(
  */
 export function apply(ctx: Context, config: Config): void {
   const home = resolveDshHome()
+  // 包内自带默认铃声：首次安装时复制到 <dshHome>/sounds/finish.wav（之后用户可自行覆盖该文件）
+  const homeSound = join(home, 'sounds', 'finish.wav')
+  const packagedSound = join(dirname(fileURLToPath(import.meta.url)), '..', 'sounds', 'finish.wav')
+  if (!existsSync(homeSound) && existsSync(packagedSound)) {
+    try {
+      mkdirSync(dirname(homeSound), { recursive: true })
+      copyFileSync(packagedSound, homeSound)
+    } catch (error) {
+      ctx.logger('dsh-notify-desktop').warn(`notify bundled sound copy failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   const successSound: Sound = config.successSoundPath
     ? { kind: 'file', path: config.successSoundPath }
-    : { kind: 'file', path: join(home, 'sounds', 'finish.wav') }
+    : { kind: 'file', path: homeSound }
   const errorSound: Sound = config.errorSoundPath
     ? { kind: 'file', path: config.errorSoundPath }
     : { kind: 'exclamation' }
