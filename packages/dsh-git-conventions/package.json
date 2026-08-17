@@ -23,6 +23,6 @@
     "typecheck": "tsc --noEmit",
     "pack": "node scripts/pack.mjs",
     "prepack": "pnpm run build"
-  }
+  },
+  "license": "MIT"
 }
-
