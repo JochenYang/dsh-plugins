@@ -1,6 +1,6 @@
 {
   "name": "dsh-pet",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "DSH 桌面宠物：小狐狸悬浮在窗口右下角，随 LLM 回复情绪播放序列帧动画；设置项集成在 DSH 设置页",
   "type": "module",
   "main": "lib/index.js",

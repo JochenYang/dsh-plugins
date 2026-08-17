@@ -60,7 +60,7 @@ const FRAME_MS: Record<string, number> = {
   idle: 320,
   happy: 240,
   sad: 420,
-  think: 380,
+  think: 480,
   sleep: 720,
   wave: 240,
 }

@@ -29,11 +29,11 @@ export interface PetSettingsClient {
 
 export const defaultAnimationsClient: PetAnimationsClient = {
   idle: '4,5,6',
-  happy: '7,8,11',
-  sad: '10,19',
-  think: '10,11,7',
-  sleep: '22,23,24,25',
-  wave: '11,8',
+  happy: '11,9,4',
+  sad: '10,9',
+  think: '10,11,9',
+  sleep: '18',
+  wave: '11,4',
 }
 
 export const defaultReactionsClient: PetReactionsClient = {
