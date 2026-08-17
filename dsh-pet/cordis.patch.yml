@@ -1,0 +1,4 @@
+# dsh-pet — 桌面宠物插件（配置默认值；用户偏好走 settings 命名空间 pet）
+- insert:
+    - id: dsh-pet
+      name: dsh-pet

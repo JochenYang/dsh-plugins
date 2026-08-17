@@ -3,3 +3,11 @@ node_modules/
 .pnpm-store/
 pnpm-lock.yaml
 pnpm-workspace.yaml
+entry.mjs
+.env
+.env.*
+**/test/smoke.mjs
+**/test/render-smoke.mjs
+**/test/real-data-check.bundle.mjs
+.dsh_better_edit/
+.pet-tmp/

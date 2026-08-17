@@ -1,0 +1,49 @@
+{
+  "name": "dsh-pet",
+  "version": "0.1.8",
+  "description": "DSH 桌面宠物：小狐狸悬浮在窗口右下角，随 LLM 回复情绪播放序列帧动画；设置项集成在 DSH 设置页",
+  "type": "module",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "assets",
+    "cordis.patch.yml"
+  ],
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.js --external:@deepseek-ai/*",
+    "build:client": "tsc -p tsconfig.client.json && node scripts/build-client.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:client": "tsc -p tsconfig.client.json --noEmit",
+    "pack": "node scripts/pack.mjs",
+    "prepare": "pnpm run build && pnpm run build:client"
+  }
+}
