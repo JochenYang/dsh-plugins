@@ -26,4 +26,4 @@
 - 独立页日历因 `grid-auto-flow: column` 导致标签错位、`六` 与月份标签重叠：改为显式网格定位
 - 每日趋势缺少悬停明细：悬停显示当日请求数/命中率/各分段 tokens/成本，并高亮对应列
 
-[0.1.0]: https://github.com/owner/dsh-configure
+[0.1.0]: https://github.com/JochenYang/dsh-plugins/tree/main/packages/dsh-usage-heatmap

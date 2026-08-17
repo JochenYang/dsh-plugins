@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pkg: [dsh-git-conventions, dsh-notify-desktop, dsh-usage-heatmap, dsh-vision-bridge]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: pnpm install
+        working-directory: packages/${{ matrix.pkg }}
+      - name: Build
+        run: pnpm build
+        working-directory: packages/${{ matrix.pkg }}
+      - name: Syntax check
+        run: node --check lib/index.js
+        working-directory: packages/${{ matrix.pkg }}
