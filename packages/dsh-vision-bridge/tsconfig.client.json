@@ -11,13 +11,13 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@deepseek-ai/cordis": ["../../deepseek-harness/vendor/cordis/lib/types/index.d.ts"],
-      "@deepseek-ai/schemastery": ["../../deepseek-harness/vendor/schemastery/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-brand": ["../../deepseek-harness/packages/util/brand/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-client-runtime/client": ["../../deepseek-harness/packages/client/runtime/lib/types/client/index.d.ts"],
-      "@deepseek-ai/dsh-client-ui-conversation/client": ["../../deepseek-harness/packages/client/ui-conversation/lib/types/client/index.d.ts"],
-      "@deepseek-ai/dsh-client-ui-model-selection/client": ["../../deepseek-harness/packages/client/ui-model-selection/lib/types/client/index.d.ts"],
-      "@deepseek-ai/dsh-client-ui-input-trigger/client": ["../../deepseek-harness/packages/client/ui-input-trigger/lib/types/client/index.d.ts"]
+      "@deepseek-ai/cordis": ["../../../deepseek-harness/vendor/cordis/lib/types/index.d.ts"],
+      "@deepseek-ai/schemastery": ["../../../deepseek-harness/vendor/schemastery/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-brand": ["../../../deepseek-harness/packages/util/brand/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-client-runtime/client": ["../../../deepseek-harness/packages/client/runtime/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-conversation/client": ["../../../deepseek-harness/packages/client/ui-conversation/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-model-selection/client": ["../../../deepseek-harness/packages/client/ui-model-selection/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-input-trigger/client": ["../../../deepseek-harness/packages/client/ui-input-trigger/lib/types/client/index.d.ts"]
     }
   },
   "include": ["src/client"]

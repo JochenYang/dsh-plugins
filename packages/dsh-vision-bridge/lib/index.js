@@ -281,7 +281,7 @@ async function runVisionGlance(options) {
     throw new Error(`vision_glance: image is ${stat.size} bytes, exceeding the ${config.maxImageBytes}-byte limit`);
   }
   const data = readFileSync(fullPath);
-  const prompt = question === void 0 || question.trim() === "" ? config.language === "en" ? "Describe this image in detail." : "\u8BF7\u8BE6\u7EC6\u63CF\u8FF0\u8FD9\u5F20\u56FE\u7247\u7684\u5185\u5BB9\u3002" : question.trim();
+  const prompt = question === void 0 || question.trim() === "" ? config.language === "en" ? "Describe this image in detail. Structure your answer as follows:\n1. Scene Overview: what this image is (screenshot, photo, chart, document, etc.)\n2. Key Details: all visible elements in structured form (UI: layout, components, text, colors, states; charts: data points, labels, trends; photos: subjects, composition, visible text/signs)\n3. Text Extraction (OCR): transcribe ALL visible text in order, preserving formatting where possible\n4. Notable Observations: anything unusual, errors, or noteworthy\nStay factual; do not speculate beyond the image. If the image is unclear, note which parts are legible." : "\u8BF7\u8BE6\u7EC6\u63CF\u8FF0\u8FD9\u5F20\u56FE\u7247\u3002\u6309\u4EE5\u4E0B\u7ED3\u6784\u8F93\u51FA\uFF1A\n1. \u573A\u666F\u6982\u8FF0\uFF1A\u8FD9\u5F20\u56FE\u662F\u4EC0\u4E48\uFF08\u622A\u56FE\u3001\u7167\u7247\u3001\u56FE\u8868\u3001\u6587\u6863\u7B49\uFF09\n2. \u5173\u952E\u7EC6\u8282\uFF1A\u7ED3\u6784\u5316\u5217\u51FA\u6240\u6709\u53EF\u89C1\u5143\u7D20\uFF08\u754C\u9762\uFF1A\u5E03\u5C40\u3001\u7EC4\u4EF6\u3001\u6587\u5B57\u3001\u989C\u8272\u3001\u72B6\u6001\uFF1B\u56FE\u8868\uFF1A\u6570\u636E\u70B9\u3001\u6807\u7B7E\u3001\u8D8B\u52BF\uFF1B\u7167\u7247\uFF1A\u4E3B\u4F53\u3001\u6784\u56FE\u3001\u53EF\u89C1\u6587\u5B57/\u6807\u8BC6\uFF09\n3. \u6587\u5B57\u8F6C\u5F55\uFF08OCR\uFF09\uFF1A\u6309\u987A\u5E8F\u9010\u884C\u8F6C\u5F55\u56FE\u4E2D\u6240\u6709\u53EF\u89C1\u6587\u5B57\uFF0C\u5C3D\u91CF\u4FDD\u7559\u539F\u683C\u5F0F\n4. \u6CE8\u610F\u4E8B\u9879\uFF1A\u4EFB\u4F55\u5F02\u5E38\u3001\u9519\u8BEF\u6216\u503C\u5F97\u6CE8\u610F\u7684\u4FE1\u606F\n\u56DE\u7B54\u4FDD\u6301\u4E8B\u5B9E\u6027\uFF0C\u4E0D\u8981\u731C\u6D4B\u56FE\u7247\u4E4B\u5916\u7684\u5185\u5BB9\uFF1B\u56FE\u7247\u4E0D\u6E05\u6670\u65F6\u6CE8\u660E\u54EA\u4E9B\u90E8\u5206\u53EF\u8FA8\u8BA4\u3002" : question.trim();
   const started = Date.now();
   const combined = AbortSignal.any([exec.signal, AbortSignal.timeout(config.timeoutMs)]);
   let response;
@@ -303,7 +303,7 @@ async function runVisionGlance(options) {
             ]
           }
         ],
-        max_tokens: 2048
+        max_tokens: 8192
       }),
       signal: combined
     });

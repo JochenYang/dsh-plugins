@@ -117,7 +117,9 @@ export async function runVisionGlance(options: {
 
   const data = readFileSync(fullPath)
   const prompt = question === undefined || question.trim() === ''
-    ? config.language === 'en' ? 'Describe this image in detail.' : '请详细描述这张图片的内容。'
+    ? config.language === 'en'
+      ? 'Describe this image in detail. Structure your answer as follows:\n1. Scene Overview: what this image is (screenshot, photo, chart, document, etc.)\n2. Key Details: all visible elements in structured form (UI: layout, components, text, colors, states; charts: data points, labels, trends; photos: subjects, composition, visible text/signs)\n3. Text Extraction (OCR): transcribe ALL visible text in order, preserving formatting where possible\n4. Notable Observations: anything unusual, errors, or noteworthy\nStay factual; do not speculate beyond the image. If the image is unclear, note which parts are legible.'
+      : '请详细描述这张图片。按以下结构输出：\n1. 场景概述：这张图是什么（截图、照片、图表、文档等）\n2. 关键细节：结构化列出所有可见元素（界面：布局、组件、文字、颜色、状态；图表：数据点、标签、趋势；照片：主体、构图、可见文字/标识）\n3. 文字转录（OCR）：按顺序逐行转录图中所有可见文字，尽量保留原格式\n4. 注意事项：任何异常、错误或值得注意的信息\n回答保持事实性，不要猜测图片之外的内容；图片不清晰时注明哪些部分可辨认。'
     : question.trim()
 
   const started = Date.now()
@@ -141,7 +143,7 @@ export async function runVisionGlance(options: {
             ],
           },
         ],
-        max_tokens: 2048,
+        max_tokens: 8192,
       }),
       signal: combined,
     })
