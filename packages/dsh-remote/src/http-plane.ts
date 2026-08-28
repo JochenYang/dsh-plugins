@@ -58,6 +58,30 @@ const RESPONSE_FORBIDDEN = new Set([
   'content-length',
 ])
 
+/**
+ * Client-bundle rewrites applied to tunnel traffic only. The dsh web client
+ * keys its settings mirror on `connection.isLoopback`, which reads the page
+ * hostname — a phone behind the relay never qualifies, so every settings
+ * surface (model provider catalog, plugin config sections) would stay
+ * permanently disabled even though tunneled /api traffic passes the Host
+ * fence and `settings.describe` answers redacted (secret-role fields never
+ * ride the wire). Forcing the shared mirror to host persistence restores
+ * those surfaces for tunnel sessions; desktop/GUI traffic never crosses this
+ * plane. Marker-absent (a future dsh build changing that line) degrades to
+ * pass-through.
+ */
+const CLIENT_BUNDLE_REWRITES: ReadonlyArray<{
+  path: string
+  from: string
+  to: string
+}> = [
+  {
+    path: '/plugins/@deepseek-ai/dsh-client-ui-settings/client.js',
+    from: 'connection.isLoopback ? "host" : "memory"',
+    to: '"host"',
+  },
+]
+
 interface Pending {
   id: number
   method: string
@@ -78,6 +102,8 @@ export interface HttpPlaneOptions {
 
 export class HttpPlane {
   private readonly pending = new Map<number, Pending>()
+  /** Marker-miss warnings already logged, one per rewrite entry per process. */
+  private readonly warnedRewriteMisses = new Set<string>()
 
   constructor(private readonly options: HttpPlaneOptions) {}
 
@@ -182,6 +208,12 @@ export class HttpPlane {
       return
     }
 
+    const rewrite = CLIENT_BUNDLE_REWRITES.find((entry) => entry.path === pending.path)
+    if (rewrite !== undefined) {
+      await this.streamRewritten(pending, rewrite, response.body)
+      return
+    }
+
     const reader = response.body.getReader()
     for (;;) {
       const { done, value } = await reader.read()
@@ -193,6 +225,41 @@ export class HttpPlane {
           this.options.send({ t: T.HTTP_CHUNK, id: pending.id, dataBase64: chunk.toString('base64') })
         }
       }
+    }
+    // Release the controller so a late abort after stream end is ignored.
+    this.pending.delete(pending.id)
+    this.options.send({ t: T.HTTP_END, id: pending.id })
+  }
+
+  /**
+   * Buffered send for rewrite targets: these are bounded static bundles the
+   * local server answers as one file, so the whole body is read, the marker
+   * replacement applied, and the result re-chunked. A body without the marker
+   * (dsh build drift) ships unmodified; the mismatch is logged once per entry.
+   */
+  private async streamRewritten(
+    pending: Pending,
+    rewrite: { path: string; from: string; to: string },
+    stream: ReadableStream<Uint8Array>,
+  ): Promise<void> {
+    const chunks: Buffer[] = []
+    const reader = stream.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value.byteLength > 0) chunks.push(Buffer.from(value))
+    }
+    const original = Buffer.concat(chunks)
+    let body = original
+    if (original.includes(rewrite.from)) {
+      body = Buffer.from(original.toString('utf8').replaceAll(rewrite.from, rewrite.to), 'utf8')
+    } else if (!this.warnedRewriteMisses.has(rewrite.path)) {
+      this.warnedRewriteMisses.add(rewrite.path)
+      this.options.log(`http-plane: rewrite marker missing in ${rewrite.path}; serving unmodified`)
+    }
+    for (let offset = 0; offset < body.byteLength; offset += HTTP_CHUNK_BYTES) {
+      const piece = body.subarray(offset, offset + HTTP_CHUNK_BYTES)
+      this.options.send({ t: T.HTTP_CHUNK, id: pending.id, dataBase64: piece.toString('base64') })
     }
     // Release the controller so a late abort after stream end is ignored.
     this.pending.delete(pending.id)

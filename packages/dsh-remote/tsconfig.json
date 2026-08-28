@@ -11,10 +11,10 @@
     "verbatimModuleSyntax": true,
     "baseUrl": ".",
     "paths": {
-      "@deepseek-ai/cordis": ["../../deepseek-harness/vendor/cordis/lib/types/index.d.ts"],
-      "@deepseek-ai/schemastery": ["../../deepseek-harness/vendor/schemastery/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-host-webserver": ["../../deepseek-harness/packages/host/webserver/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-home-paths": ["../../deepseek-harness/packages/util/home-paths/lib/types/index.d.ts"]
+      "@deepseek-ai/cordis": ["../../../deepseek-harness/vendor/cordis/lib/types/index.d.ts"],
+      "@deepseek-ai/schemastery": ["../../../deepseek-harness/vendor/schemastery/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-host-webserver": ["../../../deepseek-harness/packages/host/webserver/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-home-paths": ["../../../deepseek-harness/packages/util/home-paths/lib/types/index.d.ts"]
     }
   },
   "include": ["src"],
