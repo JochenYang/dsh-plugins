@@ -33,7 +33,7 @@ import {
   TOKEN_HEADER,
 } from './const.ts'
 import { HttpProxy } from './http-proxy.ts'
-import { adminHtml, indexHtml, pairHtml } from './pages.ts'
+import { adminHtml, indexHtml, manifestJson, pairHtml } from './pages.ts'
 import type { HostSession, PhoneSession } from './sessions.ts'
 import { Sessions } from './sessions.ts'
 import { JsonlStore } from './store.ts'
@@ -126,9 +126,24 @@ export class RelayServer {
       return this.plain(res, 405, 'method not allowed')
     }
 
+    // The dsh web UI references the manifest root-absolute, and browsers fetch
+    // it with credentials omitted — before the device routes and without any
+    // cookie, so it cannot be proxied; answer with the static relay manifest.
+    if (url.pathname === '/manifest.webmanifest') {
+      if (method !== 'GET' && method !== 'HEAD') return this.plain(res, 405, 'method not allowed')
+      const bytes = Buffer.from(manifestJson())
+      res.writeHead(200, {
+        'Content-Type': 'application/manifest+json',
+        'Content-Length': bytes.length,
+        'Cache-Control': 'no-cache',
+      })
+      res.end(bytes)
+      return
+    }
+
     if (url.pathname === '/admin' || url.pathname === '/admin/login' || url.pathname === '/admin/logout'
       || url.pathname === '/admin/api/state' || url.pathname === '/admin/api/revoke'
-      || url.pathname === '/admin/api/disconnect') {
+      || url.pathname === '/admin/api/disconnect' || url.pathname === '/admin/api/remove') {
       return this.onAdminRequest(req, res, url, method)
     }
 
@@ -533,8 +548,44 @@ export class RelayServer {
       case '/admin/api/disconnect':
         if (method !== 'POST') break
         return this.onAdminRevoke(req, res, true)
+      case '/admin/api/remove':
+        if (method !== 'POST') break
+        return this.onAdminRemove(req, res)
     }
     this.plain(res, 405, 'method not allowed')
+  }
+
+  /**
+   * Remove a device and every trace of it (tokens, pairings, sessions). Only
+   * allowed while its host is offline: a live host would re-register itself
+   * on the next hello (§9), making the removal a no-op that comes back.
+   */
+  private onAdminRemove(req: IncomingMessage, res: ServerResponse): void {
+    let body = ''
+    req.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
+    req.on('end', () => {
+      let deviceId: unknown
+      try {
+        deviceId = (JSON.parse(body) as { deviceId?: unknown }).deviceId
+      } catch {
+        return this.json(res, 400, { ok: false, error: { code: 'BAD_BODY', message: '请求格式错误' } })
+      }
+      if (typeof deviceId !== 'string' || !/^[a-f0-9]{32}$/.test(deviceId)) {
+        return this.json(res, 400, { ok: false, error: { code: 'BAD_DEVICE', message: '设备标识无效' } })
+      }
+      if (this.sessions.getHost(deviceId) !== null) {
+        return this.json(res, 409, {
+          ok: false,
+          error: { code: 'HOST_ONLINE', message: '设备在线：请先在桌面端退出 dsh-remote 连接（或断网）后再删除' },
+        })
+      }
+      this.sessions.disposeDevicePhones(deviceId)
+      this.bridge.purgeDevice(deviceId)
+      this.store.forgetDevice(deviceId)
+      this.log(`admin remove: device ${deviceId.slice(0, 8)}… forgotten (tokens, pairings, sessions)`)
+      this.json(res, 200, { ok: true })
+    })
+    req.on('error', () => this.plain(res, 400, 'bad request'))
   }
 
   private onAdminLogin(req: IncomingMessage, res: ServerResponse): void {
@@ -591,6 +642,12 @@ export class RelayServer {
       const host = this.sessions.getHost(device.deviceId)
       const online = host !== null
       const pair = host?.pair ?? null
+      // Token list hygiene: active first, then the newest revoked ones; the
+      // rest are folded into a count so a long pairing history stays readable.
+      const all = this.store.listTokens(device.deviceId)
+      const active = all.filter((row) => row.revokedAt === null)
+      const revokedDesc = all.filter((row) => row.revokedAt !== null).reverse()
+      const shown = [...active, ...revokedDesc].slice(0, 6)
       return {
         deviceId: device.deviceId,
         hostName: device.hostName,
@@ -602,12 +659,19 @@ export class RelayServer {
         pairCode: pair !== null && pair.expiresAt > now ? pair.code : null,
         pairExpiresAt: pair !== null && pair.expiresAt > now ? pair.expiresAt : null,
         phoneSessions: this.sessions.phoneCountFor(device.deviceId),
-        tokens: this.store.listTokens(device.deviceId).map((row) => ({
+        tokens: shown.map((row) => ({
           sha: row.tokenSha.slice(0, 12),
           createdAt: row.createdAt,
           revokedAt: row.revokedAt,
         })),
+        tokenTotal: all.length,
+        tokenActive: active.length,
       }
+    })
+    // Dead devices sink: online hosts first, then by freshest heartbeat.
+    devices.sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1
+      return (b.lastSeen ?? b.createdAt) - (a.lastSeen ?? a.createdAt)
     })
     return { ok: true, now, devices }
   }

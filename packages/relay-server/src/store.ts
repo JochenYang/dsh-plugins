@@ -16,6 +16,8 @@ export interface DeviceRow {
   deviceId: string
   hostName: string
   createdAt: number
+  /** Set on the deletion tombstone; a removed device must not resurrect on replay. */
+  removedAt?: number
 }
 
 export interface PairingRow {
@@ -34,6 +36,9 @@ export interface TokenRow {
 }
 
 export type Row = DeviceRow | PairingRow | TokenRow
+
+/** Revoked tokens older than this are dropped from memory at load (file history intact). */
+const REVOKED_TOKEN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 export class JsonlStore {
   private readonly file: string
@@ -69,12 +74,35 @@ export class JsonlStore {
         this.log(`store: skipping malformed line`)
       }
     }
+    this.pruneOrphans()
     this.log(`store: loaded ${this.devices.size} device(s), ${this.pairings.size} pairing(s), ${this.tokensBySha.size} token(s)`)
+  }
+
+  /**
+   * Drop rows whose owning device is gone (removed or its tombstone lost the
+   * race on an old store) and revoked tokens past the retention window — both
+   * only ever accumulate; the file keeps the full history for audit.
+   */
+  private pruneOrphans(now = Date.now()): void {
+    for (const [sha, row] of [...this.tokensBySha]) {
+      if (this.devices.has(row.deviceId)) {
+        if (row.revokedAt !== null && now - row.revokedAt > REVOKED_TOKEN_RETENTION_MS) this.tokensBySha.delete(sha)
+        continue
+      }
+      this.tokensBySha.delete(sha)
+    }
+    for (const [deviceId, row] of [...this.pairings]) {
+      if (!this.devices.has(deviceId) || row.expiresAt <= now) this.pairings.delete(deviceId)
+    }
   }
 
   private apply(row: Row, persist: boolean): void {
     switch (row.type) {
       case 'device': {
+        if (row.removedAt !== undefined) {
+          this.devices.delete(row.deviceId)
+          break
+        }
         const prev = this.devices.get(row.deviceId)
         if (prev === undefined || row.createdAt >= prev.createdAt) this.devices.set(row.deviceId, row)
         break
@@ -167,12 +195,20 @@ export class JsonlStore {
 
   // -- tokens ----------------------------------------------------------------
 
+  /**
+   * Mint a token, enforcing one active token per device (PROTOCOL §10's
+   * single-concurrent-phone default): a fresh pairing displaces the previous
+   * token, so re-pairing a new phone retires the old one instead of
+   * accumulating live credentials forever. The pairing code itself stays
+   * valid — one code may re-pair within its TTL, each time displacing the
+   * previous phone.
+   */
   addToken(deviceId: string, token: string, now = Date.now()): TokenRow {
+    this.revokeActiveTokens(deviceId, now)
     const row: TokenRow = { type: 'token', deviceId, tokenSha: sha256Hex(token), createdAt: now, revokedAt: null }
     this.apply(row, true)
     return row
   }
-
   findTokenBySha(tokenSha: string): TokenRow | null {
     return this.tokensBySha.get(tokenSha) ?? null
   }
@@ -183,8 +219,8 @@ export class JsonlStore {
     return row !== undefined && row.revokedAt === null
   }
 
-  /** Revoke every token of a device; returns the revoked token SHAs + device. */
-  revokeDeviceToken(deviceId: string, now = Date.now()): string[] {
+  /** Revoke every active token of a device (keeps pairing rows alone). */
+  private revokeActiveTokens(deviceId: string, now: number): string[] {
     const revoked: string[] = []
     for (const row of [...this.tokensBySha.values()]) {
       if (row.deviceId !== deviceId || row.revokedAt !== null) continue
@@ -193,6 +229,12 @@ export class JsonlStore {
       this.append(updated)
       revoked.push(row.tokenSha)
     }
+    return revoked
+  }
+
+  /** Revoke every token of a device; returns the revoked token SHAs + device. */
+  revokeDeviceToken(deviceId: string, now = Date.now()): string[] {
+    const revoked = this.revokeActiveTokens(deviceId, now)
     // Drop the (now revoked) pairing row so a revoked device cannot pair again.
     const pairing = this.pairings.get(deviceId)
     if (pairing !== undefined) {
@@ -202,16 +244,18 @@ export class JsonlStore {
     return revoked
   }
 
-/**
-   * Forget a device entirely: drop its device row, pairing rows and every
-   * token. The host re-registers on its next hello (§9); all phones must
-   * re-pair. Appends tombstone rows so history stays auditable.
+  /**
+   * Forget a device entirely: drop its device row, pairing row and every
+   * token. Appends a `removedAt` tombstone so the replayed history keeps the
+   * removal (an earlier shape without the marker resurrected the device on
+   * reload). The host re-registers on its next hello (§9); all phones must
+   * re-pair.
    */
   forgetDevice(deviceId: string): void {
     const device = this.devices.get(deviceId)
     if (device !== undefined) {
       this.devices.delete(deviceId)
-      this.append({ ...device, type: 'device', createdAt: Date.now(), hostName: device.hostName })
+      this.append({ ...device, removedAt: Date.now() })
     }
     const pairing = this.pairings.get(deviceId)
     if (pairing !== undefined) {
@@ -220,9 +264,8 @@ export class JsonlStore {
     }
     for (const row of [...this.tokensBySha.values()]) {
       if (row.deviceId !== deviceId) continue
-      const updated: TokenRow = { ...row, revokedAt: Date.now() }
-      this.tokensBySha.set(row.tokenSha, updated)
-      this.append(updated)
+      this.tokensBySha.delete(row.tokenSha)
+      this.append({ ...row, type: 'token', revokedAt: Date.now() })
     }
   }
 }

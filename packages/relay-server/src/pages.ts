@@ -55,6 +55,25 @@ export function indexHtml(): string {
   `)
 }
 
+/**
+ * Static PWA manifest for phone sessions. Chrome fetches `<link rel=manifest>`
+ * with credentials omitted, so this request can never carry the pairing
+ * cookie and cannot ride the /d/<id> proxy or the cookie fallback — it must
+ * be answerable without auth. Only inert metadata lives here; no device or
+ * session facts.
+ */
+export function manifestJson(): string {
+  return JSON.stringify({
+    name: 'DSH App',
+    short_name: 'DSH',
+    start_url: '/',
+    scope: '/',
+    display: 'standalone',
+    background_color: '#0f1115',
+    theme_color: '#0f1115',
+  })
+}
+
 export function pairHtml(): string {
   return layout('DSH App — 配对', `
     <h1>手机配对</h1>
@@ -149,6 +168,7 @@ export function adminHtml(): string {
   .off { background: #3a2a12; color: #fbbf24; }
   .err { background: #3f1220; color: #f87171; }
   .meta { font-size: 12px; color: #9aa3b2; margin-top: 6px; }
+  .meta.warn { color: #fbbf24; }
   .pair-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 2px; font-size: 18px; font-weight: 700; color: #7d9bff; }
   .pair-exp { font-size: 11px; color: #6b7583; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
@@ -163,9 +183,14 @@ export function adminHtml(): string {
   .btn-ghost { background: #232833; color: #e8eaed; }
   .btn-danger { background: #3f1220; color: #f87171; }
   .btn-primary { background: #4c6ef5; color: #fff; }
-  .btn-warn { background: #3a2a12; color: #fbbf24; }
   .actions { display: flex; gap: 8px; }
   .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .tab {
+    border-radius: 999px; padding: 6px 14px; font-size: 12px; cursor: pointer;
+    background: #1a1d24; color: #9aa3b2; border: 1px solid #2a2f3a;
+  }
+  .tab.active { background: #2a3140; color: #e8eaed; border-color: #4c6ef5; }
   .err-bar { color: #f87171; font-size: 12px; min-height: 16px; margin-bottom: 10px; }
   label { display: block; font-size: 13px; color: #9aa3b2; margin-bottom: 6px; }
   input[type=password] {
@@ -191,6 +216,7 @@ export function adminHtml(): string {
       </div>
     </div>
     <div class="err-bar" id="err"></div>
+    <div class="tabs" id="tabs" style="display:none"></div>
     <div id="panel"></div>
   </div>
 
@@ -208,10 +234,13 @@ export function adminHtml(): string {
 (function () {
   var errEl = document.getElementById('err');
   var panelEl = document.getElementById('panel');
+  var tabsEl = document.getElementById('tabs');
   var loginCard = document.getElementById('loginCard');
   var sub = document.getElementById('subline');
   var toastEl = document.getElementById('toast');
   var timer = null;
+  var filter = 'all';
+  var lastState = null;
 
   function showToast(text) {
     toastEl.textContent = text;
@@ -233,7 +262,8 @@ export function adminHtml(): string {
     var s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
     if (s < 60) return s + ' 秒前';
     if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
-    return Math.floor(s / 3600) + ' 小时前';
+    if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+    return Math.floor(s / 86400) + ' 天前';
   }
 
   function esc(value) {
@@ -242,7 +272,43 @@ export function adminHtml(): string {
     });
   }
 
+  function renderTabs(devices) {
+    var online = devices.filter(function (d) { return d.online; }).length;
+    var offline = devices.length - online;
+    var defs = [['all', '全部 ' + devices.length], ['online', '在线 ' + online], ['offline', '离线 ' + offline]];
+    tabsEl.style.display = 'flex';
+    tabsEl.innerHTML = defs.map(function (d) {
+      return '<button class="tab' + (filter === d[0] ? ' active' : '') + '" data-filter="' + d[0] + '">' + d[1] + '</button>';
+    }).join('');
+    var buttons = tabsEl.querySelectorAll('button');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', function () {
+        filter = this.getAttribute('data-filter');
+        if (lastState) renderState(lastState);
+      });
+    }
+  }
+
+  function tokenSection(d) {
+    var activeCount = d.tokenActive || 0;
+    var total = d.tokenTotal || 0;
+    var hidden = total - (d.tokens ? d.tokens.length : 0);
+    var head = '<div class="meta" style="margin-top:10px; color:#6b7583">令牌（长期有效，直至吊销/重配对自动替换）— 共 ' + total +
+      ' 条，活跃 ' + activeCount + ' 条</div>';
+    if (!d.tokens || d.tokens.length === 0) return head + '<div class="empty">无令牌记录</div>';
+    var rows = '<table><thead><tr><th>令牌指纹（sha256 前缀）</th><th>签发时间</th><th>状态</th></tr></thead><tbody>';
+    for (var j = 0; j < d.tokens.length; j++) {
+      var t = d.tokens[j];
+      rows += '<tr><td class="sha">' + t.sha + '</td><td>' + fmtTime(t.createdAt) + '</td><td>' +
+        (t.revokedAt ? '<span class="badge off">已吊销 ' + since(t.revokedAt) + '</span>' : '<span class="badge ok">有效</span>') + '</td></tr>';
+    }
+    rows += '</tbody></table>';
+    if (hidden > 0) rows += '<div class="meta" style="color:#6b7583">已折叠 ' + hidden + ' 条已吊销记录（30 天后自动清理）</div>';
+    return head + rows;
+  }
+
   function renderState(state) {
+    lastState = state;
     var devices = state.devices || [];
     var totalOnline = 0;
     devices.forEach(function (d) { if (d.online) totalOnline++; });
@@ -250,14 +316,25 @@ export function adminHtml(): string {
       ? (devices.length + ' 台设备，' + totalOnline + ' 台在线 — 更新于 ' + fmtTime(state.now))
       : '连接状态';
 
+    renderTabs(devices);
+    var shown = devices.filter(function (d) {
+      if (filter === 'online') return d.online;
+      if (filter === 'offline') return !d.online;
+      return true;
+    });
+
     if (devices.length === 0) {
       panelEl.innerHTML = '<div class="card empty">暂无设备。桌面端 dsh-remote 插件连接中继后会自动注册。</div>';
       return;
     }
+    if (shown.length === 0) {
+      panelEl.innerHTML = '<div class="card empty">该筛选下暂无设备。</div>';
+      return;
+    }
 
     var html = '';
-    for (var i = 0; i < devices.length; i++) {
-      var d = devices[i];
+    for (var i = 0; i < shown.length; i++) {
+      var d = shown[i];
       var badge = d.online
         ? '<span class="badge ok">在线</span>'
         : (d.hostName ? '<span class="badge off">离线</span>' : '<span class="badge err">未连接</span>');
@@ -270,18 +347,10 @@ export function adminHtml(): string {
         ? d.phoneSessions + ' 个手机会话在线'
         : '无手机会话';
 
-      var tokenRows = '';
-      if (d.tokens && d.tokens.length > 0) {
-        tokenRows = '<table><thead><tr><th>令牌指纹（sha256 前缀）</th><th>签发时间</th><th>状态</th></tr></thead><tbody>';
-        for (var j = 0; j < d.tokens.length; j++) {
-          var t = d.tokens[j];
-          tokenRows += '<tr><td class="sha">' + t.sha + '</td><td>' + fmtTime(t.createdAt) + '</td><td>' +
-            (t.revokedAt ? '<span class="badge off">已吊销 ' + since(t.revokedAt) + '</span>' : '<span class="badge ok">有效</span>') + '</td></tr>';
-        }
-        tokenRows += '</tbody></table>';
-      } else {
-        tokenRows = '<div class="empty">无令牌记录</div>';
-      }
+      var actions = d.online
+        ? '<button class="btn-ghost" data-action="disconnect" data-device="' + d.deviceId + '">断开手机</button>' +
+          '<button class="btn-danger" data-action="revoke" data-device="' + d.deviceId + '">吊销设备</button>'
+        : '<button class="btn-danger" data-action="remove" data-device="' + d.deviceId + '">删除设备</button>';
 
       html += '<div class="card">' +
         '<div class="row">' +
@@ -289,19 +358,16 @@ export function adminHtml(): string {
             '<span class="host-name">' + esc(d.hostName || '未命名主机') + '</span> ' + badge +
             '<div class="host-id">' + d.deviceId.slice(0, 8) + '…（完整 ID: ' + d.deviceId + '）</div>' +
           '</div>' +
-          '<div class="actions">' +
-            '<button class="btn-ghost" data-action="disconnect" data-device="' + d.deviceId + '">断开手机</button>' +
-            '<button class="btn-danger" data-action="revoke" data-device="' + d.deviceId + '">吊销设备</button>' +
-          '</div>' +
+          '<div class="actions">' + actions + '</div>' +
         '</div>' +
         '<div class="meta">注册于 ' + fmtTime(d.createdAt) + ' · 最后心跳 ' + since(d.lastSeen) + '</div>' +
         '<div class="meta">' + pairLine + '</div>' +
         '<div class="meta">' + phoneLine + '</div>' +
-        '<div class="meta" style="margin-top:10px; color:#6b7583">令牌清单</div>' +
-        tokenRows +
+        tokenSection(d) +
       '</div>';
     }
     panelEl.innerHTML = html;
+    attachActions();
   }
 
   function attachActions() {
@@ -311,10 +377,12 @@ export function adminHtml(): string {
         var btn = this;
         var device = btn.getAttribute('data-device');
         var action = btn.getAttribute('data-action');
-        var verb = action === 'revoke' ? '吊销' : '断开';
+        var verb = action === 'revoke' ? '吊销' : (action === 'remove' ? '删除' : '断开');
         var confirmText = action === 'revoke'
           ? '吊销将作废该设备全部令牌并断开所有手机（桌面端需刷新重新生成配对码）。确定吊销 ' + device.slice(0, 8) + '… 吗？'
-          : '将断开该设备当前所有手机会话连接。确定执行吗？';
+          : action === 'remove'
+            ? '删除将清除该设备的注册信息、全部令牌与配对记录，不可恢复。若桌面端仍在连接中继，它会以新设备身份重新注册。确定删除 ' + device.slice(0, 8) + '… 吗？'
+            : '将断开该设备当前所有手机会话连接。确定执行吗？';
         if (!window.confirm(confirmText)) return;
         btn.disabled = true;
         btn.textContent = '执行中…';
@@ -324,8 +392,6 @@ export function adminHtml(): string {
         }).catch(function (e) {
           err(e.message);
         }).finally(function () {
-          btn.disabled = false;
-          btn.textContent = action === 'revoke' ? '吊销设备' : '断开手机';
           void loadState();
         });
       });
@@ -351,13 +417,13 @@ export function adminHtml(): string {
         err('');
         loginCard.style.display = 'none';
         renderState(state);
-        attachActions();
         timer = setTimeout(loadState, 8000);
       })
       .catch(function (e) {
         if (e && e.code === 'UNAUTHORIZED') {
           loginCard.style.display = '';
           panelEl.innerHTML = '';
+          tabsEl.style.display = 'none';
           sub.textContent = '请先登录';
           return;
         }
@@ -397,6 +463,7 @@ export function adminHtml(): string {
     fetch('/admin/logout', { method: 'POST' }).finally(function () {
       loginCard.style.display = '';
       panelEl.innerHTML = '';
+      tabsEl.style.display = 'none';
       sub.textContent = '已退出';
     });
   });

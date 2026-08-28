@@ -39,6 +39,7 @@ relay.example.com {
 |---|---|
 | `/` | 首页（二维码 + 状态） |
 | `/pair` | 手机配对入口（POST `{code}` 换挑战） |
+| `/manifest.webmanifest` | 静态 PWA manifest（无鉴权：浏览器拉取 manifest 不带 cookie，无法走代理） |
 | `/d/<deviceId>/*` | 主代理入口：静态资源与 API 一律转发，WS upgrade 透传 |
 | `/ws?role=host|phone` | host 注册 / 手机握手的 WebSocket 控制面 |
 

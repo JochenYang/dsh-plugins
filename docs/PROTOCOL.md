@@ -121,6 +121,7 @@ host 在本地使用 Node 原生 `WebSocket`（globalThis，Node 22+）连接
 |---|---|
 | `/` | 首页（项目名 + 二维码/配对码入口） |
 | `/pair` | 配对页：GET 表单页，POST `{code}` 换挑战，成功后保存 token 到 localStorage 并 `302 → /d/<deviceId>/` |
+| `/manifest.webmanifest` | 静态 PWA manifest（无鉴权；浏览器拉取 manifest 时 `credentials: 'omit'`，永远到不了 cookie 回退） |
 | `/d/<deviceId>/*` | 主代理入口：静态资源 + API 一律转发；用户受持 token 会话保护（页面内 WS 握手带 token 在上行请求头 `x-dsh-relay-token` 中） |
 
 > 手机端 WS 认证：前端 WS 连接不带 query token（避免 URL 泄露），改用上行 HTTP 请求头
@@ -150,5 +151,5 @@ host 首次注册（`hello` 带 `hostToken` 且 deviceId 未知）→ 自动注�
 - `HOST_TOKEN` 是 relay 侧唯一信任边界：谁持有它谁可注册/接管该 relay 上的 host 身份（自托管前提）。
 - 挑战-响应防重放：challenge 一次性、60s TTL；code 10 分钟 TTL、限速 5 次/分/设备+IP。
 - 仓库内不存 code 明文（存 sha256）；token 落盘只存 sha256。
-- 默认每 deviceId 仅允许 1 个并发手机；host 可随时 `revoke`。
+- 默认每 deviceId 仅允许 1 个并发手机；重新配对（再次 POST `/pair`）会自动替换该设备上一个活跃令牌，旧手机需重新配对；host 可随时 `revoke`。
 - 日志脱敏：永不打印 challenge/response/token/code。
