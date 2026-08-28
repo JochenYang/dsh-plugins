@@ -29,20 +29,23 @@ export function apply(ctx: ClientContext): void {
 
     const mood = createMoodTracker(ctx, () => reactions)
 
-    const disposeOverlay = ctx.slots.register({
+    // The parent declarations (ui-layout's shell.overlay / ui-settings'
+    // settings.section) land asynchronously; inject waits for them instead of
+    // letting a bare register race ahead and throw "slot is not declared".
+    const disposeOverlay = ctx.slots.inject('shell.overlay', () => ctx.slots.register({
       name: 'shell.overlay',
       id: 'dsh-pet',
       order: 1000,
       inject: () => ({ hooks: { petConfig: config, petMood: mood }, petScope: config }),
-    }, PetOverlay)
+    }, PetOverlay))
 
-    const disposeSection = ctx.slots.register({
+    const disposeSection = ctx.slots.inject('settings.section', () => ctx.slots.register({
       name: 'settings.section',
       id: 'pet',
       order: 40,
       label: '宠物',
       inject: () => ({ hooks: { petConfig: config }, petScope: config }),
-    }, PetSettingsSection)
+    }, PetSettingsSection))
 
     log?.info?.('dsh-pet: overlay + settings section registered')
     return () => {
