@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pkg: [dsh-git-conventions, dsh-notify-desktop, dsh-usage-heatmap, dsh-vision-bridge]
+        pkg: [dsh-git-conventions, dsh-notify-desktop, dsh-usage-heatmap, dsh-vision-bridge, dsh-remote, relay-server]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -25,6 +25,10 @@ jobs:
       - name: Build
         run: pnpm build
         working-directory: packages/${{ matrix.pkg }}
+      - name: Build client (dsh-remote)
+        if: matrix.pkg == 'dsh-remote'
+        run: pnpm build:client
+        working-directory: packages/${{ matrix.pkg }}
       - name: Syntax check
-        run: node --check lib/index.js
+        run: node --check ${{ matrix.pkg == 'relay-server' && 'dist/cli.js' || 'lib/index.js' }}
         working-directory: packages/${{ matrix.pkg }}
