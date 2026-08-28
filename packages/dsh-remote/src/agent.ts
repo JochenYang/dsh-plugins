@@ -21,6 +21,13 @@ export interface PairInfo {
   expiresAt: number
 }
 
+/** One in-flight `pair-refresh`: the reply resolves every waiter. */
+interface PairWaiter {
+  promise: Promise<PairInfo | null>
+  settle: (pair: PairInfo | null) => void
+  timer: ReturnType<typeof setTimeout> | undefined
+}
+
 export interface PeerInfo {
   online: boolean
   ua?: string
@@ -62,6 +69,7 @@ export class RelayAgent {
   private frameSink: ((frame: Frame) => void) | undefined
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
   private tickTimer: ReturnType<typeof setInterval> | undefined
+  private pairWaiter: PairWaiter | undefined
 
   constructor(private readonly options: AgentOptions) {}
 
@@ -111,6 +119,7 @@ export class RelayAgent {
   /** Close the tunnel and cancel timers. */
   stop(): void {
     this.stopped = true
+    this.settlePair(null)
     if (this.reconnectTimer !== undefined) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
@@ -124,9 +133,24 @@ export class RelayAgent {
     this.retryInMs = null
   }
 
-  /** Ask the relay for a fresh pairing code. */
-  refreshPair(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) this.sendFrame({ t: T.PAIR_REFRESH })
+  /**
+   * Ask the relay for a fresh pairing code and wait for the answer.
+   * @returns the fresh pair from the relay's `pair` reply, or null when the
+   * relay did not answer in time (offline, rate-limited, or reconnecting).
+   * The reply also lands in {@link getStatus}, so callers may just re-read
+   * status after awaiting.
+   */
+  refreshPair(): Promise<PairInfo | null> {
+    if (this.ws?.readyState !== WebSocket.OPEN) return Promise.resolve(null)
+    const wait = this.pairWaiter
+    if (wait !== undefined) return wait.promise
+    let settle: (pair: PairInfo | null) => void = () => {}
+    const promise = new Promise<PairInfo | null>((resolve) => { settle = resolve })
+    const waiter: PairWaiter = { promise, settle, timer: undefined }
+    this.pairWaiter = waiter
+    waiter.timer = setTimeout(() => this.settlePair(null), 4000)
+    this.sendFrame({ t: T.PAIR_REFRESH })
+    return promise
   }
 
   /** Revoke every token & pairing code; relay disconnects online phones. */
@@ -217,6 +241,7 @@ export class RelayAgent {
       this.tickTimer = undefined
     }
     this.ws = null
+    this.settlePair(null)
     if (this.stopped) return
     this.setState('error')
     this.scheduleReconnect()
@@ -260,6 +285,7 @@ export class RelayAgent {
         break
       case T.PAIR:
         this.pair = { code: String(frame.code), expiresAt: Number(frame.expiresAt) }
+        this.settlePair(this.pair)
         this.setState(this.state) // keep current state; surface new pair
         this.log('pair code refreshed')
         break
@@ -292,6 +318,15 @@ export class RelayAgent {
     this.setState('error')
     this.log(message)
     this.closeSocket('failed')
+  }
+
+  /** Resolve (or cancel) a pending pair-refresh; safe to call with none pending. */
+  private settlePair(pair: PairInfo | null): void {
+    const waiter = this.pairWaiter
+    if (waiter === undefined) return
+    this.pairWaiter = undefined
+    if (waiter.timer !== undefined) clearTimeout(waiter.timer)
+    waiter.settle(pair)
   }
 
   private closeSocket(reason: string | null): void {

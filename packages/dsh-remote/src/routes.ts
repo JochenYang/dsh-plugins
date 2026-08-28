@@ -98,8 +98,11 @@ export function registerRemoteRoutes(server: WebServer, ctx: RouteContext): () =
     }),
 
     register(server, ctx, '/_dsh/remote/pair-refresh', async (_req, res, site) => {
-      site.agent.refreshPair()
-      sendJson(res, 200, { ok: true, status: site.agent.getStatus() })
+      // Wait for the relay's `pair` reply so the response (and the status
+      // refresh the settings page issues afterwards) carries the fresh code
+      // instead of the expired one; the agent bounds the wait internally.
+      const pair = await site.agent.refreshPair()
+      sendJson(res, 200, { ok: pair !== null, status: site.agent.getStatus() })
     }),
 
     register(server, ctx, '/_dsh/remote/revoke', async (_req, res, site) => {

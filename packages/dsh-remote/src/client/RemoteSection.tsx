@@ -52,6 +52,16 @@ export function RemoteSection(props: RemoteSectionProps): ReactElement {
   const [busy, setBusy] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  // Re-render every 10s while a pairing code is on screen so the expired
+  // hint flips without waiting for an unrelated update.
+  const [, setTick] = useState(0)
+  const pairCode = remote?.pair?.code
+  useEffect(() => {
+    if (pairCode === undefined) return
+    const timer = setInterval(() => setTick((t) => t + 1), 10_000)
+    return () => clearInterval(timer)
+  }, [pairCode])
+  const pairExpired = remote?.pair !== undefined && remote.pair !== null && remote.pair.expiresAt <= Date.now()
   const relay = relayRoot(settings?.relayUrl ?? '')
   const pairUrl = relay !== '' && remote?.pair ? `${relay}/pair?code=${remote.pair.code}` : ''
 
@@ -61,14 +71,18 @@ export function RemoteSection(props: RemoteSectionProps): ReactElement {
    * notice then). Keeps the button visibly responsive even when the data
    * itself did not change.
    */
-  const act = async (fn: () => Promise<boolean | null>, okText: string): Promise<void> => {
+  const act = async (
+    fn: () => Promise<boolean | null>,
+    okText: string,
+    failText = '操作失败，请检查网络或中继地址',
+  ): Promise<void> => {
     if (refreshing) return
     setRefreshing(true)
     setNotice(null)
     const result = await fn()
     setRefreshing(false)
     if (result === null) return
-    setNotice(result ? { ok: true, text: okText } : { ok: false, text: '操作失败，请检查网络或中继地址' })
+    setNotice(result ? { ok: true, text: okText } : { ok: false, text: failText })
   }
 
   return (
@@ -137,15 +151,27 @@ export function RemoteSection(props: RemoteSectionProps): ReactElement {
           <div style={{ fontSize: 12, opacity: 0.7 }}>配对码（10 分钟内有效）</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: 3, fontFamily: 'monospace' }}>{remote.pair.code}</span>
-            <button style={buttonStyle(refreshing)} disabled={refreshing} onClick={() => { void copyText(remote.pair?.code ?? '') }}>复制</button>
-            <button style={buttonStyle(refreshing)} disabled={refreshing} onClick={() => { void act(() => source.refreshPair(), '配对码已刷新') }}>{refreshing ? '刷新中…' : '刷新'}</button>
+            <button
+              style={buttonStyle(refreshing)}
+              disabled={refreshing}
+              onClick={() => { void act(() => copyText(remote.pair?.code ?? ''), '配对码已复制', '复制失败，请手动选择复制') }}
+            >复制</button>
+            <button style={buttonStyle(refreshing)} disabled={refreshing} onClick={() => { void act(() => source.refreshPair(), '配对码已刷新') }}>
+              {refreshing ? '刷新中…' : pairExpired ? '刷新新码' : '刷新'}
+            </button>
           </div>
-          <div style={{ fontSize: 11, opacity: 0.5 }}>
-            有效期至 {formatTime(remote.pair.expiresAt)} · 手机访问{' '}
-            <a style={{ color: 'var(--dsh-accent, #4c8dff)' }} href={relayRoot(settings?.relayUrl ?? '')} target="_blank" rel="noreferrer">
-              {relayRoot(settings?.relayUrl ?? '') || '中继地址'}
-            </a>{' '}
-            输入该配对码
+          <div style={{ fontSize: 11, opacity: pairExpired ? 1 : 0.5, color: pairExpired ? '#c94b4b' : undefined }}>
+            {pairExpired
+              ? `配对码已于 ${formatTime(remote.pair.expiresAt)} 过期，手机输入此码无效——点击「刷新新码」后再用新码配对。`
+              : `有效期至 ${formatTime(remote.pair.expiresAt)} · 手机访问{' '}`}
+            {!pairExpired && (
+              <>
+                <a style={{ color: 'var(--dsh-accent, #4c8dff)' }} href={relayRoot(settings?.relayUrl ?? '')} target="_blank" rel="noreferrer">
+                  {relayRoot(settings?.relayUrl ?? '') || '中继地址'}
+                </a>{' '}
+                输入该配对码
+              </>
+            )}
           </div>
         </div>
       ) : (
@@ -192,8 +218,30 @@ function relayRoot(relayUrl: string): string {
   return trimmed.replace(/^wss?:\/\//, (m) => (m.startsWith('wss') ? 'https://' : 'http://'))
 }
 
-function copyText(text: string): Promise<void> {
+/**
+ * Copy with a visible outcome. The async clipboard API needs a focused,
+ * permission-granted context — dsh's settings webview can refuse it — so a
+ * hidden-textarea `execCommand` fallback keeps the copy working there.
+ */
+function copyText(text: string): Promise<boolean> {
   return navigator.clipboard.writeText(text)
+    .then(() => true)
+    .catch(async () => {
+      try {
+        const area = document.createElement('textarea')
+        area.value = text
+        area.setAttribute('readonly', '')
+        area.style.position = 'fixed'
+        area.style.opacity = '0'
+        document.body.appendChild(area)
+        area.select()
+        const ok = document.execCommand('copy')
+        area.remove()
+        return ok
+      } catch {
+        return false
+      }
+    })
 }
 
 /**

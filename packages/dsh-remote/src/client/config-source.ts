@@ -123,6 +123,10 @@ export function createRemoteConfigSource(): RemoteConfigSource {
     try {
       const response = await fetch(route, { method: 'POST', credentials: 'same-origin' })
       if (!response.ok) return false
+      // An action can fail politely (ok:false on 200) — e.g. pair-refresh
+      // timing out without a relay reply; surface that as a failure.
+      const body = await response.json() as { ok?: boolean }
+      if (body.ok === false) return false
       return await refresh()
     } catch {
       return false
