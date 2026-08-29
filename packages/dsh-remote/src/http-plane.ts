@@ -10,6 +10,7 @@
 
 import { HTTP_CHUNK_BYTES, T } from './frames.js'
 import type { Frame } from './agent.js'
+import { injectMobileShim } from './mobile-shim.js'
 
 export type Send = (frame: Frame) => void
 
@@ -213,19 +214,49 @@ export class HttpPlane {
       await this.streamRewritten(pending, rewrite, response.body)
       return
     }
+    if ((responseHeaders['content-type'] ?? '').includes('text/html')) {
+      await this.streamHtml(pending, response.body)
+      return
+    }
 
     const reader = response.body.getReader()
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
       if (value.byteLength > 0) {
-        for (let offset = 0; offset < value.byteLength; offset += HTTP_CHUNK_BYTES) {
-          const piece = value.subarray(offset, offset + HTTP_CHUNK_BYTES)
-          const chunk = Buffer.from(piece)
-          this.options.send({ t: T.HTTP_CHUNK, id: pending.id, dataBase64: chunk.toString('base64') })
-        }
+        this.sendBuffered(pending, Buffer.from(value))
       }
     }
+    // Release the controller so a late abort after stream end is ignored.
+    this.pending.delete(pending.id)
+    this.options.send({ t: T.HTTP_END, id: pending.id })
+  }
+
+  /** Chunk one in-memory buffer to the relay in frame-sized pieces. */
+  private sendBuffered(pending: Pending, body: Buffer): void {
+    for (let offset = 0; offset < body.byteLength; offset += HTTP_CHUNK_BYTES) {
+      const piece = body.subarray(offset, offset + HTTP_CHUNK_BYTES)
+      this.options.send({ t: T.HTTP_CHUNK, id: pending.id, dataBase64: piece.toString('base64') })
+    }
+  }
+
+  /**
+   * Buffered send for the app shell: every text/html response is the SPA
+   * index, small and static, so the whole body is read and the mobile shim
+   * (viewport fix + responsive stylesheet) injected before it streams out.
+   * Desktop/GUI traffic never crosses this plane, so the shim only ever
+   * reaches tunnel sessions.
+   */
+  private async streamHtml(pending: Pending, stream: ReadableStream<Uint8Array>): Promise<void> {
+    const chunks: Buffer[] = []
+    const reader = stream.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value.byteLength > 0) chunks.push(Buffer.from(value))
+    }
+    const body = injectMobileShim(Buffer.concat(chunks).toString('utf8'))
+    this.sendBuffered(pending, Buffer.from(body, 'utf8'))
     // Release the controller so a late abort after stream end is ignored.
     this.pending.delete(pending.id)
     this.options.send({ t: T.HTTP_END, id: pending.id })
@@ -257,10 +288,7 @@ export class HttpPlane {
       this.warnedRewriteMisses.add(rewrite.path)
       this.options.log(`http-plane: rewrite marker missing in ${rewrite.path}; serving unmodified`)
     }
-    for (let offset = 0; offset < body.byteLength; offset += HTTP_CHUNK_BYTES) {
-      const piece = body.subarray(offset, offset + HTTP_CHUNK_BYTES)
-      this.options.send({ t: T.HTTP_CHUNK, id: pending.id, dataBase64: piece.toString('base64') })
-    }
+    this.sendBuffered(pending, body)
     // Release the controller so a late abort after stream end is ignored.
     this.pending.delete(pending.id)
     this.options.send({ t: T.HTTP_END, id: pending.id })
