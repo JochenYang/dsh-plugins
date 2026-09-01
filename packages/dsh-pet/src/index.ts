@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 // Type-only: pull ctx.settings / ctx.webServer Context merges into this program.
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+// settingsNamespace removed: dsh-settings ≥0.1.2 accepts bare string in register()
 import { SETTINGS_NS, PetSettingsSchema, type PetSettings } from './settings.js'
 
 /** Cordis plugin name. */
@@ -48,7 +48,7 @@ const CONTENT_TYPES: Record<string, string> = {
 export function apply(ctx: Context): void {
   // Host-side visibility only (the browser half uses the HTTP route).
   try {
-    ctx.settings.register(settingsNamespace(SETTINGS_NS), PetSettingsSchema)
+    ctx.settings.register(SETTINGS_NS, PetSettingsSchema)
   } catch {
     // Never fatal: the HTTP config channel is the authoritative surface.
   }

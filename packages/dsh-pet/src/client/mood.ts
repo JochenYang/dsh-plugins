@@ -1,7 +1,20 @@
 /**
- * Pet mood tracker: watches the current session's conversation snapshot and
- * derives the pet expression from the LLM's activity:
+ * Pet mood tracker: adapts the DSH 0.1.2-alpha session architecture.
  *
+ * The old client runtime exposed a node-style Conversation snapshot (nodes /
+ * partial / lastAgentError) on each session binding. The 0.1.2-alpha kernel
+ * removed that surface: `SessionSnapshot` carries only lifecycle state
+ * (running, lastAgentError), and conversation nodes live in the conversation
+ * views. The tracker now reads two channels off the same `ctx.sessions`
+ * binding:
+ *
+ * - `binding.eventSource` — append deltas of the session event window
+ *   (turn/start, assistant/chunk, assistant/message, turn/end …); the mood
+ *   derives from the live tail only, history windows become the baseline.
+ * - `binding.session` — lifecycle snapshot as a fallback (running / error),
+ *   which also covers a turn already streaming when the tracker attaches.
+ *
+ * Reactions:
  * - streaming reply          -> think (thinking/listening animation)
  * - reply completed          -> classify the final text (wave/happy/sad) or happy
  * - turn ended in an error   -> sad
@@ -10,10 +23,11 @@
  * The tracker is a tiny uSES-compatible observable; the overlay consumes it
  * through the inject `usePetMood` hook.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
-  AssistantBlock, AssistantMessageNode, ConversationSnapshot,
-} from '@deepseek-ai/dsh-client-runtime/client'
+  SessionEventWindow, SessionSnapshot,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { PetMood, PetReactionsClient } from './types'
 
 export interface MoodSnapshot {
@@ -45,21 +59,13 @@ function classify(text: string): PetMood {
   return 'happy'
 }
 
-function assistantText(blocks: readonly AssistantBlock[]): string {
+/** Join the visible text blocks of an assistant message (dsh-llm ContentBlock). */
+function assistantText(content: readonly { type: string; text?: string }[]): string {
   let out = ''
-  for (const block of blocks) {
-    if (block.kind === 'text') out += block.text
+  for (const block of content) {
+    if (block.type === 'text' && typeof block.text === 'string') out += block.text
   }
   return out.trim()
-}
-
-function lastAssistantNode(snap: ConversationSnapshot): AssistantMessageNode | undefined {
-  const nodes = snap.nodes
-  for (let i = nodes.length - 1; i >= 0; i--) {
-    const node = nodes[i]
-    if (node?.kind === 'assistant') return node
-  }
-  return undefined
 }
 
 function truncate(value: string): string {
@@ -76,7 +82,7 @@ const HOLD_MS: Record<PetMood, number> = {
   sleep: 0, // sleep is session-driven, not a timed hold
 }
 
-export function createMoodTracker(ctx: ClientContext, reactions: ReactionsProvider): MoodTracker {
+export function createMoodTracker(ctx: Context, reactions: ReactionsProvider): MoodTracker {
   let snapshot: MoodSnapshot = IDLE
   let mood: PetMood = 'idle'
   let moodUntil = 0
@@ -84,8 +90,9 @@ export function createMoodTracker(ctx: ClientContext, reactions: ReactionsProvid
   let streaming = false
   let running = false
   let wasRunning = false
-  let processedSeq = -1
-  let curSession: { id: string; unsub: () => void } | undefined
+  /** Event-window revision already absorbed; -1 = no baseline yet. */
+  let revision = -1
+  let curSession: { id: SessionId; unsubSnap: () => void; unsubEvent: () => void } | undefined
   const listeners = new Set<() => void>()
   let closed = false
 
@@ -104,12 +111,105 @@ export function createMoodTracker(ctx: ClientContext, reactions: ReactionsProvid
     emit()
   }
 
-  const apply = (snap: ConversationSnapshot): void => {
+  // ---- Event channel: derive mood from the live window tail ----
+  const applyWindow = (window: SessionEventWindow): void => {
+    // Baseline: first observation, or a non-contiguous revision (reconnect /
+    // history reload) — history is never replayed into the pet.
+    if (revision === -1 || window.revision !== revision + 1 || window.change.kind === 'replace') {
+      revision = window.revision
+      return
+    }
+    revision = window.revision
+    if (window.change.kind !== 'append') return
+    for (const entry of window.change.entries) {
+      if (entry.type === 'event') applyEvent(entry.event)
+    }
+  }
+
+  const applyEvent = (event: SessionEvent): void => {
+    const now = Date.now()
+    const r = reactions()
+    switch (event.type) {
+      case 'turn/start':
+        mood = 'think'
+        moodUntil = Number.POSITIVE_INFINITY
+        streaming = true
+        emit()
+        break
+      case 'assistant/chunk':
+        mood = 'think'
+        moodUntil = Number.POSITIVE_INFINITY
+        streaming = true
+        emit()
+        break
+      case 'assistant/message': {
+        streaming = false
+        const value = assistantText(event.data.message.content)
+        if (value !== '') text = truncate(value)
+        if (event.data.interrupted === true) {
+          // Turn was aborted mid-reply: gentle sad, or plain idle.
+          setMood(r.error ? 'sad' : 'idle')
+          if (mood === 'sad') moodUntil = now + HOLD_MS.sad
+          emit()
+        } else if (r.complete) {
+          // Every finalized message re-classifies: the last reply owns the mood.
+          mood = r.sentiment ? classify(value) : 'happy'
+          moodUntil = now + HOLD_MS[mood]
+          emit()
+        }
+        break
+      }
+      case 'tool/call':
+      case 'tool/result':
+        // Tooling is part of the running turn; the thinking hold continues.
+        mood = 'think'
+        moodUntil = Number.POSITIVE_INFINITY
+        streaming = true
+        emit()
+        break
+      case 'turn/end': {
+        const kind = event.data.reason.kind
+        streaming = false
+        if (kind === 'error') {
+          if (r.error) {
+            mood = 'sad'
+            moodUntil = now + HOLD_MS.sad
+            emit()
+          }
+        } else if (kind === 'aborted') {
+          if (r.error) {
+            mood = 'sad'
+            moodUntil = now + HOLD_MS.sad
+            emit()
+          } else {
+            setMood('idle')
+            emit()
+          }
+        } else {
+          // completed / max-tokens / blocked / interrupted: release the hold.
+          if (mood === 'think' && r.complete) {
+            mood = 'happy'
+            moodUntil = now + HOLD_MS.happy
+            emit()
+          } else if (mood === 'think') {
+            setMood('idle')
+            emit()
+          }
+        }
+        break
+      }
+      default:
+        break
+    }
+  }
+
+  // ---- Snapshot channel: lifecycle fallback (also covers attach-in-flight) ----
+  const applySnapshot = (snap: SessionSnapshot): void => {
     const now = Date.now()
     const r = reactions()
     wasRunning = running
     running = snap.running
-    streaming = snap.running && snap.partial !== null && snap.partial !== undefined
+    streaming = snap.running
 
     const err = snap.lastAgentError
     if (err !== null && r.error) {
@@ -120,56 +220,23 @@ export function createMoodTracker(ctx: ClientContext, reactions: ReactionsProvid
     }
 
     if (r.streaming && snap.running) {
-      mood = 'think'
+      // Covers a turn already streaming when the tracker attached (the event
+      // baseline never replayed its turn/start).
+      setMood('think')
       moodUntil = Number.POSITIVE_INFINITY
       emit()
       return
     }
 
-    // Not streaming (or streaming reactions disabled): look for finalized content.
-    const last = lastAssistantNode(snap)
-    let handled = false
-    if (last !== undefined && last.seq > processedSeq) {
-      processedSeq = last.seq
-      handled = true
-      const value = assistantText(last.blocks)
-      if (value !== '') text = truncate(value)
-      if (last.interrupted === true) {
-        // Turn was aborted mid-reply: gentle sad, or plain idle.
-        if (r.error) {
-          mood = 'sad'
-          moodUntil = now + HOLD_MS.sad
-        } else {
-          mood = 'idle'
-        }
-        emit()
-      } else if (r.complete) {
-        mood = r.sentiment ? classify(value) : 'happy'
-        moodUntil = now + HOLD_MS[mood]
-        emit()
-      } else if (mood === 'think') {
-        mood = 'idle'
-        emit()
-      }
-    } else if (!snap.running && mood === 'think') {
-      // Streaming ended with no new finalized node in this window (e.g. a
-      // cancelled turn): release the thinking hold.
-      handled = true
-      const hasTurnError = snap.nodes.some((n) => n?.kind === 'turn-error')
-      if (hasTurnError && r.error) {
-        mood = 'sad'
-        moodUntil = now + HOLD_MS.sad
-      } else if (r.complete) {
+    if (!snap.running && mood === 'think') {
+      // Streaming ended without a finalized message event visible in this
+      // window (e.g. cancelled turn): release the hold.
+      if (r.complete) {
         mood = 'happy'
         moodUntil = now + HOLD_MS.happy
       } else {
         mood = 'idle'
       }
-      emit()
-    } else if (!snap.running && wasRunning && r.complete && !handled) {
-      // Turn ended without a new finalized node in this window.
-      mood = 'happy'
-      moodUntil = now + HOLD_MS.happy
       emit()
     }
 
@@ -181,8 +248,10 @@ export function createMoodTracker(ctx: ClientContext, reactions: ReactionsProvid
   const rewire = (): void => {
     const id = ctx.sessions.list.getSnapshot().current
     if (curSession !== undefined && curSession.id === id) return
-    curSession?.unsub()
+    curSession?.unsubSnap()
+    curSession?.unsubEvent()
     curSession = undefined
+    revision = -1
     if (id === undefined) {
       mood = 'sleep'
       running = false
@@ -194,20 +263,22 @@ export function createMoodTracker(ctx: ClientContext, reactions: ReactionsProvid
     if (binding === undefined) return // retried on the next list emit
     // Session switch: reset per-session state so a stale mood/high-water mark
     // from the previous session cannot leak in.
-    const snapshot0 = binding.session.getSnapshot()
-    const last0 = lastAssistantNode(snapshot0)
-    processedSeq = last0 !== undefined ? last0.seq : -1
+    mood = 'idle'
     text = ''
     wasRunning = false
-    mood = 'idle'
+    running = false
+    streaming = false
     emit()
-    curSession = {
-      id,
-      unsub: binding.session.subscribe(() => {
-        if (!closed) apply(binding.session.getSnapshot())
-      }),
-    }
-    apply(binding.session.getSnapshot())
+    const unsubSnap = binding.session.subscribe(() => {
+      if (!closed) applySnapshot(binding.session.getSnapshot())
+    })
+    const unsubEvent = binding.eventSource.subscribe(() => {
+      if (!closed) applyWindow(binding.eventSource.getSnapshot())
+    })
+    curSession = { id, unsubSnap, unsubEvent }
+    // Align to the live state (history windows become the baseline).
+    applySnapshot(binding.session.getSnapshot())
+    applyWindow(binding.eventSource.getSnapshot())
   }
 
   rewire()
@@ -222,7 +293,8 @@ export function createMoodTracker(ctx: ClientContext, reactions: ReactionsProvid
     dispose() {
       closed = true
       offList()
-      curSession?.unsub()
+      curSession?.unsubSnap()
+      curSession?.unsubEvent()
       curSession = undefined
     },
   }

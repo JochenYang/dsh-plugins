@@ -1,6 +1,6 @@
 {
   "name": "dsh-vision-bridge",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Minimal DSH vision bridge (pure-path mode): pasted images are cached and handed to the model as path markers, so sessions never contain native image parts and the model can be switched freely; vision_glance reads them via an external vision API",
   "type": "module",
   "main": "lib/index.js",
@@ -21,7 +21,8 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-modules",
+        "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-model-selection"
       ],
@@ -44,4 +45,3 @@
     "prepack": "pnpm run build"
   }
 }
-

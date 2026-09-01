@@ -3,9 +3,12 @@
  * tracker, and registers the floating overlay (shell.overlay) plus the
  * settings page (settings.section).
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// dsh-client-runtime renamed to dsh-client-modules in 0.1.2-alpha; ClientContext removed — use cordis Context
+import type { Context } from '@deepseek-ai/cordis'
 // Type-only: conversation/layout Context merges used by components.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: ctx.slots (SlotRegistry) Context merge lives in ui-renderer.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: settings.section SlotMap declaration lives in ui-settings.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -17,7 +20,7 @@ import { createPetConfigSource, reactionsOf } from './config-source'
 /** Required client services. */
 export const inject = ['slots', 'sessions']
 
-export function apply(ctx: ClientContext): void {
+export function apply(ctx: Context): void {
   ctx.effect(() => {
     const log = ctx.logger?.('dsh-pet')
     const config = createPetConfigSource()

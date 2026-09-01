@@ -17,9 +17,12 @@
  * session history is what makes DSH refuse switching to a text-only model.
  */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
+// Type-only: ctx.sessions Context merge lives in dsh-api-session-controller.
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Same-origin routes served by the host bundle. */
 const PASTE_IMAGES_ROUTE = '/_dsh/vision-bridge/paste-images'
@@ -61,12 +64,9 @@ function messageOf(error: unknown): string {
 }
 
 /** Best-effort current model hint from the model-selection directory. */
-function modelHint(ctx: ClientContext, sessionId: string): string {
+function modelHint(ctx: Context, sessionId: string): string {
   try {
-    const directories = ctx.modelDirectories as unknown as {
-      directoryFor?(id: string): { current?: { provider?: string; model?: string } | null }
-    } | undefined
-    const current = directories?.directoryFor?.(sessionId)?.current
+    const current = ctx.modelDirectories.directoryFor(sessionId as SessionId).store.getSnapshot().current
     if (current !== null && current !== undefined
       && typeof current.provider === 'string' && typeof current.model === 'string') {
       return `&provider=${encodeURIComponent(current.provider)}&model=${encodeURIComponent(current.model)}`
@@ -77,7 +77,7 @@ function modelHint(ctx: ClientContext, sessionId: string): string {
   return ''
 }
 
-async function uploadImage(ctx: ClientContext, sessionId: string, file: File): Promise<UploadResult> {
+async function uploadImage(ctx: Context, sessionId: string, file: File): Promise<UploadResult> {
   const query = new URLSearchParams({
     sessionId,
     name: file.name || 'clipboard-image',
@@ -110,7 +110,7 @@ function insertAt(input: SessionInputLike, start: number, end: number, text: str
 }
 
 
-export function apply(ctx: ClientContext): void {
+export function apply(ctx: Context): void {
   void refreshConfig()
   ctx.effect(() => {
     const listener = (event: ClipboardEvent): void => { void handlePaste(ctx, event) }
@@ -132,7 +132,7 @@ async function refreshConfig(): Promise<void> {
   }
 }
 
-async function handlePaste(ctx: ClientContext, event: ClipboardEvent): Promise<void> {
+async function handlePaste(ctx: Context, event: ClipboardEvent): Promise<void> {
   const files = imageFiles(event.clipboardData)
   if (files.length === 0) return
   if (files.length > MAX_IMAGES) {

@@ -44,4 +44,4 @@ Invoke-WebRequest -Uri 'http://127.0.0.1:10790/_dsh/pet/assets/fox-atlas.png' -U
 
 ## 版本
 
-当前安装：0.1.3（默认映射：idle=4,5,6 happy=7,8,11 sad=10 think=16,17,18 sleep=22,23,24,25 wave=11,8）
+当前安装：0.2.5（默认映射：idle=4,5,6 happy=7,8,11 sad=10 think=16,17,18 sleep=22,23,24,25 wave=11,8；0.2.5 起适配 DSH 0.1.2-alpha 内核会话事件流）
