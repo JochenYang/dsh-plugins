@@ -29,9 +29,13 @@
     }
   },
   "license": "MIT",
+  "dependencies": {
+    "ws": "^8.21.3"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "~18.3.1",
+    "@types/ws": "^8.18.1",
     "esbuild": "^0.25.0",
     "qrcode-generator": "^1.4.4",
     "react": "^18.2.0",
@@ -39,11 +43,19 @@
     "typescript": "^5.8.0"
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.js --external:@deepseek-ai/*",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.js --external:@deepseek-ai/* --external:ws",
     "build:client": "node scripts/build-client.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:client": "tsc -p tsconfig.client.json --noEmit",
     "pack": "node scripts/pack.mjs",
     "prepack": "pnpm run build"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JochenYang/dsh-remote.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JochenYang/dsh-remote/issues"
+  },
+  "homepage": "https://github.com/JochenYang/dsh-remote#readme"
 }
