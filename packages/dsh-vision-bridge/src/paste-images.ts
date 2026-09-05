@@ -29,7 +29,7 @@ const MAX_NAME_BYTES = 180
 
 interface PasteSuccess {
   ok: true
-  value: { absolutePath: string; filename: string; bytes: number; canAcceptImages: boolean }
+  value: { absolutePath: string; filename: string; bytes: number }
 }
 
 interface PasteFailure {
@@ -243,8 +243,6 @@ function sameOriginPost(req: IncomingMessage): boolean {
 export interface PasteImageRuntime {
   maxImageBytes(): number
   storage: PasteStorage
-  /** Whether the session's current model accepts native image input. */
-  canAcceptImages(sessionId: string): Promise<boolean>
 }
 
 /** Same-origin, live-Session-bound image upload endpoint. */
@@ -277,15 +275,9 @@ export class PastedImageBackend {
       }
       const directory = await sessionPasteRoot(this.ctx, sessionId, this.runtime.storage)
       const writtenPath = await writeImage(req, directory, filename, size, this.runtime.maxImageBytes())
-      let canAcceptImages = false
-      try {
-        canAcceptImages = await this.runtime.canAcceptImages(sessionId)
-      } catch {
-        // capability is advisory; a failure keeps the safe path-based flow
-      }
       responseJson(res, 201, {
         ok: true,
-        value: { absolutePath: writtenPath, filename: basename(writtenPath), bytes: size, canAcceptImages },
+        value: { absolutePath: writtenPath, filename: basename(writtenPath), bytes: size },
       })
     } catch (error) {
       const status = error instanceof RangeError ? 413 : 400

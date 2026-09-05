@@ -1,7 +1,7 @@
 {
   "name": "dsh-vision-bridge",
-  "version": "0.3.2",
-  "description": "Minimal DSH vision bridge (pure-path mode): pasted images are cached and handed to the model as path markers, so sessions never contain native image parts and the model can be switched freely; vision_glance reads them via an external vision API",
+  "version": "0.3.3",
+  "description": "Minimal DSH vision bridge: capability-aware paste routing — image-capable models paste natively, text-only models get cached pastes as path markers read via vision_glance, so text-model sessions stay switchable",
   "type": "module",
   "main": "lib/index.js",
   "files": [

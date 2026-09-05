@@ -11,7 +11,7 @@
         timeoutMs: 60000
         maxImageBytes: 10485760
         pasteStorage: cache
-        # auto: 模型支持原生图片→原生附件；否则缓存+路径标记
+        # auto: 当前模型支持原生图片→放行 DSH 原生粘贴；否则缓存+路径标记
         # path:  总是缓存+路径标记（纯文本流程）
         # native: 从不拦截（纯多模态用户）
         pasteMode: auto

@@ -3,15 +3,23 @@
  * composer and route them by the current model's capability.
  *
  * pasteMode (served by the host at /_dsh/vision-bridge/config):
- * - 'auto' / 'path' (default): upload to the paste route and insert a text
- *   path marker (`[pasted image N: <path>]`). The message never carries an
- *   image part, so DSH's image gates — including the "session already
- *   contains images" model-switch guard — never fire, and the session model
- *   can be switched freely between multimodal and text-only routes. The
- *   model reads the image through vision_glance.
+ * - 'auto' (default): intercept only when the session's current model cannot
+ *   accept native image input — the image is uploaded to the paste route and
+ *   the composer gets a text path marker (`[pasted image N: <path>]`), so
+ *   DSH's image gates — including the "session already contains images"
+ *   model-switch guard — never fire and the model reads the image through
+ *   vision_glance. When the model CAN accept images the event is released
+ *   untouched and DSH's native paste flow attaches the image natively.
+ * - 'path': always intercept, regardless of capability.
  * - 'native': never intercept — DSH's native paste handling runs untouched
  *   (native image parts may enter the session, which then cannot switch to
  *   a text-only model; use only for single-model sessions).
+ *
+ * The capability verdict is cached from the host and refreshed on session
+ * and model-selection changes, because the paste handler must decide
+ * synchronously. A cache miss degrades to the marker flow — always safe for
+ * text-only models; a just-switched multimodal model may see one marker
+ * paste before the refresh lands.
  *
  * Native draft re-insertion is deliberately absent: an image part in the
  * session history is what makes DSH refuse switching to a text-only model.
@@ -33,19 +41,32 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 type PasteMode = 'auto' | 'path' | 'native'
 
-/** Cached mode from the host; 'auto' is the safe default before/without config. */
+/** Mode from the host; 'auto' is the safe default before/without config. */
 let pasteMode: PasteMode = 'auto'
+
+/**
+ * Cached capability verdict for the current session+model. false until the
+ * host says otherwise: an unresolved or failed check degrades to the marker
+ * flow, which is always safe for text-only models.
+ */
+let canAcceptImages = false
+
+/** Session+model key of the last fetch that produced a definitive verdict. */
+let lastRuntimeKey = ''
+
+/** Monotonic refresh counter; stale in-flight responses are discarded. */
+let refreshGeneration = 0
 
 export const inject = ['conversation', 'sessions', 'modelDirectories']
 
-interface PasteConfig {
+interface RuntimeConfig {
   ok: boolean
-  value?: { pasteMode?: PasteMode }
+  value?: { pasteMode?: PasteMode; canAcceptImages?: boolean | null }
 }
 
 interface UploadResult {
   ok: boolean
-  value?: { absolutePath?: string; canAcceptImages?: boolean }
+  value?: { absolutePath?: string }
   error?: { message?: string }
 }
 
@@ -77,14 +98,51 @@ function modelHint(ctx: Context, sessionId: string): string {
   return ''
 }
 
+function currentSessionId(ctx: Context): string | undefined {
+  return ctx.sessions.list.getSnapshot().current
+}
+
+/**
+ * Refresh cached mode + capability from the host for the current session and
+ * model. Skipped when the session+model key is unchanged. A `null` verdict
+ * (host could not resolve the model) leaves the previous cache in place and
+ * does NOT record the key, so the next invalidation retries. Stale in-flight
+ * responses are discarded by generation so a slow answer for a previous
+ * session/model never overwrites the current verdict.
+ */
+async function refreshRuntime(ctx: Context): Promise<void> {
+  const sessionId = currentSessionId(ctx)
+  const hint = sessionId === undefined ? '' : modelHint(ctx, sessionId)
+  const key = `${sessionId ?? ''}${hint}`
+  if (key === lastRuntimeKey) return
+  const generation = ++refreshGeneration
+  try {
+    const response = await fetch(
+      `${CONFIG_ROUTE}?sessionId=${encodeURIComponent(sessionId ?? '')}${hint}`,
+      { credentials: 'same-origin' },
+    )
+    const body = await response.json() as RuntimeConfig
+    if (!response.ok || body.ok !== true) return
+    if (generation !== refreshGeneration) return
+    const mode = body.value?.pasteMode
+    pasteMode = mode === 'path' || mode === 'native' ? mode : 'auto'
+    const verdict = body.value?.canAcceptImages
+    if (verdict === true || verdict === false) {
+      canAcceptImages = verdict
+      lastRuntimeKey = key
+    }
+  } catch {
+    // keep the previous safe values; the next invalidation retries
+  }
+}
+
 async function uploadImage(ctx: Context, sessionId: string, file: File): Promise<UploadResult> {
   const query = new URLSearchParams({
     sessionId,
     name: file.name || 'clipboard-image',
     size: String(file.size),
   })
-  const hint = modelHint(ctx, sessionId)
-  const response = await fetch(`${PASTE_IMAGES_ROUTE}?${query.toString()}${hint}`, {
+  const response = await fetch(`${PASTE_IMAGES_ROUTE}?${query.toString()}`, {
     method: 'POST',
     headers: { 'Content-Type': file.type },
     body: file,
@@ -111,7 +169,37 @@ function insertAt(input: SessionInputLike, start: number, end: number, text: str
 
 
 export function apply(ctx: Context): void {
-  void refreshConfig()
+  ctx.effect(() => {
+    // The paste handler decides synchronously from the cached verdict, so the
+    // cache is kept fresh by invalidation instead of an await at paste time.
+    // The model-selection store is per-session: re-arm it on session switch
+    // (session-list churn without a `current` change is ignored).
+    let armedSessionId: string | undefined | null = null
+    let unsubModel: (() => void) | undefined
+    const rearm = (): void => {
+      const sessionId = currentSessionId(ctx)
+      if (sessionId === armedSessionId) return
+      armedSessionId = sessionId
+      unsubModel?.()
+      unsubModel = undefined
+      if (sessionId !== undefined) {
+        try {
+          const store = ctx.modelDirectories.directoryFor(sessionId as SessionId).store
+          unsubModel = store.subscribe(() => { void refreshRuntime(ctx) })
+        } catch {
+          // model directory not mounted for this session yet
+        }
+      }
+      void refreshRuntime(ctx)
+    }
+    const unsubSessions = ctx.sessions.list.subscribe(rearm)
+    rearm()
+    return () => {
+      unsubSessions()
+      unsubModel?.()
+    }
+  }, 'dsh-vision-bridge: capability cache refresh')
+
   ctx.effect(() => {
     const listener = (event: ClipboardEvent): void => { void handlePaste(ctx, event) }
     document.addEventListener('paste', listener, true)
@@ -119,30 +207,20 @@ export function apply(ctx: Context): void {
   }, 'dsh-vision-bridge: clipboard image capture')
 }
 
-async function refreshConfig(): Promise<void> {
-  try {
-    const response = await fetch(CONFIG_ROUTE, { credentials: 'same-origin' })
-    const body = await response.json() as PasteConfig
-    if (response.ok && body.ok === true) {
-      const mode = body.value?.pasteMode
-      pasteMode = mode === 'path' || mode === 'native' ? mode : 'auto'
-    }
-  } catch {
-    // keep the safe 'auto' default
-  }
-}
-
 async function handlePaste(ctx: Context, event: ClipboardEvent): Promise<void> {
   const files = imageFiles(event.clipboardData)
   if (files.length === 0) return
+  const target = event.target
+  if (!(target instanceof HTMLTextAreaElement) || target.closest('[data-composer-card]') === null) return
+  if (pasteMode === 'native') return // let DSH's native paste handling run
+  if (pasteMode === 'auto' && canAcceptImages) return // model reads natively; let DSH's paste flow run
   if (files.length > MAX_IMAGES) {
     ctx.logger?.warn?.(`dsh-vision-bridge: paste rejected: at most ${MAX_IMAGES} images at a time`)
     return
   }
-  const target = event.target
-  if (!(target instanceof HTMLTextAreaElement) || target.closest('[data-composer-card]') === null) return
-  if (pasteMode === 'native') return // let DSH's native paste handling run
 
+  // Everything below owns the paste: swallow it so the native flow cannot also
+  // attach image parts (which would lock the session to multimodal models).
   event.preventDefault()
   event.stopPropagation()
   event.stopImmediatePropagation()
@@ -153,7 +231,10 @@ async function handlePaste(ctx: Context, event: ClipboardEvent): Promise<void> {
   if (actx === undefined) return
   const input = ctx.conversation.input.for(actx) as unknown as SessionInputLike
   const snapshot = input.state.getSnapshot()
-  if (snapshot.phase !== 'plain') return
+  if (snapshot.phase !== 'plain') {
+    input.notify('info', '正在生成/提交中，本次图片粘贴已忽略，请稍后再试')
+    return
+  }
 
   const start = Math.max(0, Math.min(target.selectionStart ?? snapshot.draft.length, snapshot.draft.length))
   const end = Math.max(start, Math.min(target.selectionEnd ?? start, snapshot.draft.length))
