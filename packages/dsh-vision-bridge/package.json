@@ -40,7 +40,8 @@
     "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.js --external:@deepseek-ai/*",
     "build:client": "tsc -p tsconfig.client.json && node scripts/build-client.mjs",
     "typecheck": "tsc --noEmit",
-    "typecheck:client": "tsc -p tsconfig.client.json --noEmit",
+    "typecheck:client": "tsc -p tsconfig.client.check.json",
+    "gen:client-paths": "node scripts/gen-client-paths.mjs",
     "pack": "node scripts/pack.mjs",
     "prepack": "pnpm run build"
   }

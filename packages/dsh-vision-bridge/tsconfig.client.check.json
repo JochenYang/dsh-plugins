@@ -1,0 +1,19 @@
+{
+  // Type-check-only config for the browser half: real moduleResolution over
+  // the generated full harness paths map, so skipLibCheck has nothing to mask.
+  // The build emits separately via tsconfig.client.json (tsc CJS) — this file
+  // must not emit (allowImportingTsExtensions requires noEmit).
+  "extends": "./tsconfig.client-paths.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "baseUrl": "."
+  },
+  "include": ["src/client"]
+}

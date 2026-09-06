@@ -17,6 +17,10 @@
 
 - 清理 0.1/0.2 自动分流设计的残留死代码：POST 上传响应不再返回无人消费的 `canAcceptImages` 字段，`PasteImageRuntime.canAcceptImages` 成员与客户端无用的 provider/model POST 提示参数移除（能力查询统一走 config 端点）
 
+### Changed
+
+- client 类型门修复：新增 `scripts/gen-client-paths.mjs` 扫描 harness 生成全量类型映射 `tsconfig.client-paths.json`（1715 条），`tsconfig.client.check.json` 以 Bundler 解析 + noEmit 消费之；`typecheck:client` 从被 skipLibCheck 掩蔽的空门变为真实门（变异测试实证：不存在的 `store.subscribeX` 现在报 TS2551）。构建链不变，`lib/client.js` 字节级一致
+
 ## [0.3.1] - 2026-08-18
 
 ### Changed
