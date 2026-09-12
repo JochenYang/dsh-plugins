@@ -3,11 +3,12 @@
 # relay-server (dsh-remote-relay) — Self-hosted Mobile Relay
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](./LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/JochenYang/dsh-remote/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/JochenYang/dsh-remote/actions/workflows/ci.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white&style=flat-square)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white&style=flat-square)](https://nodejs.org/)
 [![pnpm](https://img.shields.io/badge/pnpm-11.7-F69220?logo=pnpm&logoColor=white&style=flat-square)](https://pnpm.io/)
 [![Protocol](https://img.shields.io/badge/tunnel_protocol-v1-4c6ef5?style=flat-square)](../../docs/PROTOCOL.md)
-[![Version](https://img.shields.io/badge/version-0.1.2-4c6ef5?style=flat-square)](./package.json)
+[![Version](https://img.shields.io/badge/version-0.1.3-4c6ef5?style=flat-square)](./package.json)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-2ea44f?style=flat-square)](../../README.md)
 
 [简体中文](README.md) | English
@@ -53,7 +54,7 @@ Phone browser ──HTTPS──> relay-server (this service) ──WS frames─�
 - Node.js ≥ 22, pnpm 11.x.
 - A public VPS behind TLS (caddy / nginx; the secure context also lifts
   phone-side `crypto.randomUUID` and other Secure Context API limits).
-- The [dsh-remote](../dsh-remote/README.md) plugin on the desktop.
+- The [dsh-remote](https://github.com/JochenYang/dsh-remote/tree/main/dsh-remote) plugin on the desktop.
 
 ## Quick Start (local dev)
 
@@ -130,6 +131,21 @@ relay.example.com {
     reverse_proxy 127.0.0.1:8787
 }
 ```
+
+### Reverse-proxy troubleshooting (WebSocket upgrade headers)
+
+`/events/*` and `/ws` rely on the WebSocket upgrade. caddy supports it natively; **nginx and CDNs such as EdgeOne must explicitly forward the Upgrade/Connection headers**, otherwise the phone event stream fails silently (no live output, stale status):
+
+```nginx
+location / {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_pass http://127.0.0.1:8787;
+}
+```
+
+EdgeOne: enable WebSocket for the domain in the rule engine (or forward Upgrade headers on the origin group), then purge cache and retry.
 
 ### 5. Firewall & desktop
 

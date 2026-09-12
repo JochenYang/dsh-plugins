@@ -3,11 +3,12 @@
 # relay-server（dsh-remote-relay）— 自托管手机中继
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](./LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/JochenYang/dsh-remote/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/JochenYang/dsh-remote/actions/workflows/ci.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white&style=flat-square)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white&style=flat-square)](https://nodejs.org/)
 [![pnpm](https://img.shields.io/badge/pnpm-11.7-F69220?logo=pnpm&logoColor=white&style=flat-square)](https://pnpm.io/)
 [![Protocol](https://img.shields.io/badge/tunnel_protocol-v1-4c6ef5?style=flat-square)](../../docs/PROTOCOL.md)
-[![Version](https://img.shields.io/badge/version-0.1.2-4c6ef5?style=flat-square)](./package.json)
+[![Version](https://img.shields.io/badge/version-0.1.3-4c6ef5?style=flat-square)](./package.json)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-2ea44f?style=flat-square)](../../README.md)
 
 简体中文 | [English](README.en.md)
@@ -47,7 +48,7 @@
 - Node.js ≥ 22、pnpm 11.x。
 - 公网 VPS + TLS 反代（caddy / nginx；安全上下文顺带解决手机端
   `crypto.randomUUID` 等 Secure Context API 限制）。
-- 桌面端安装 [dsh-remote](../dsh-remote/README.md) 插件。
+- 桌面端安装 [dsh-remote](https://github.com/JochenYang/dsh-remote/tree/main/dsh-remote) 插件。
 
 ## 快速开始（本地联调）
 
@@ -122,6 +123,21 @@ relay.example.com {
     reverse_proxy 127.0.0.1:8787
 }
 ```
+
+### 反代排障（WebSocket 升级头）
+
+`/events/*` 与 `/ws` 依赖 WebSocket upgrade。caddy 原生支持、无需配置；**nginx 与 EdgeOne 等 CDN 必须显式放行 Upgrade/Connection 头**，否则手机端事件流会静默失败（无实时输出、状态不刷新）：
+
+```nginx
+location / {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_pass http://127.0.0.1:8787;
+}
+```
+
+EdgeOne：在规则引擎为该域名开启 WebSocket 支持（或源站组配置 Upgrade 头透传），保存后清缓存重试。
 
 ### 5. 防火墙与桌面端
 
