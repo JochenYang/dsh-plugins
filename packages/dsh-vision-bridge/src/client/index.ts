@@ -21,6 +21,11 @@
  * text-only models; a just-switched multimodal model may see one marker
  * paste before the refresh lands.
  *
+ * All required state is resolved before the event is claimed: an unresolvable
+ * target leaves the paste to DSH's own handling instead of swallowing it into
+ * a no-op. The composer action face is captured per paste, so an upload that
+ * outlives a session switch still writes into the draft that received it.
+ *
  * Native draft re-insertion is deliberately absent: an image part in the
  * session history is what makes DSH refuse switching to a text-only model.
  */
@@ -168,19 +173,31 @@ interface SessionInputLike {
 }
 
 /**
- * Insert plain text into the composer draft through the InputActions face
- * published on the current Session binding. `insertText` is revision-guarded
- * and applies at the caret (document end when the editor has no selection),
- * in one undo step, without flattening reference chips.
+ * Resolve the composer action face for the Session that received the paste.
  *
- * Returns false when no Session binding is active (hero state) or the draft
- * revision moved between capture and edit, so the caller can report instead
- * of silently dropping the paste.
+ * The binding is captured once, synchronously, and reused for every insertion:
+ * `adapter.current` follows the main view, so re-reading it after an `await`
+ * could route a marker into whichever draft the user switched to mid-upload.
+ * @param ctx - client context.
+ * @param sessionId - the session the paste belongs to.
+ * @returns the action face, or undefined when the binding is absent or belongs
+ * to another session (hero state, or the scope is not the main view).
  */
-function insertIntoDraft(ctx: Context, text: string): boolean {
+function draftActionsFor(ctx: Context, sessionId: SessionId): InputActions | undefined {
+  const binding = ctx.uiSession.adapter.current.getSnapshot()
+  if (binding.key !== sessionId) return undefined
+  return binding.props.inputActions as InputActions | undefined
+}
+
+/**
+ * Insert plain text into one composer draft through its InputActions face.
+ * `insertText` applies at the caret (document end when the editor has no
+ * selection), in one undo step, without flattening reference chips; the phase
+ * guard is what actually rejects the edit here.
+ * @returns whether the text was applied.
+ */
+function insertIntoDraft(actions: InputActions, text: string): boolean {
   if (text === '') return true
-  const actions = ctx.uiSession.adapter.current.getSnapshot().props.inputActions as InputActions | undefined
-  if (actions === undefined) return false
   return actions.insertText(text, actions.captureInsertion())
 }
 
@@ -237,27 +254,44 @@ async function handlePaste(ctx: Context, event: ClipboardEvent): Promise<void> {
     return
   }
 
-  // Everything below owns the paste: swallow it so the native flow cannot also
-  // attach image parts (which would lock the session to multimodal models).
-  event.preventDefault()
-  event.stopPropagation()
-  event.stopImmediatePropagation()
-
+  // Resolve everything we need BEFORE owning the paste: an unresolvable target
+  // must leave the event alone so DSH's own handling still runs, instead of
+  // swallowing it into a no-op.
   const sessionId = currentSessionId(ctx)
-  if (sessionId === undefined) return
+  if (sessionId === undefined) {
+    ctx.logger?.warn?.('dsh-vision-bridge: paste ignored — no Session occupies the main view')
+    return
+  }
   const actx = ctx.sessions.scope(sessionId)
-  if (actx === undefined) return
+  if (actx === undefined) {
+    ctx.logger?.warn?.('dsh-vision-bridge: paste ignored — the Session scope is not retained')
+    return
+  }
   const input = ctx.conversation.input.for(actx) as unknown as SessionInputLike
-  const snapshot = input.state.getSnapshot()
-  if (snapshot.phase !== 'plain') {
+  if (input.state.getSnapshot().phase !== 'plain') {
+    // Own the paste here: letting it through would attach native image parts
+    // and lock the session to multimodal models.
+    swallowPaste(event)
     input.notify('info', '正在生成/提交中，本次图片粘贴已忽略，请稍后再试')
     return
   }
+  const actions = draftActionsFor(ctx, sessionId)
+  if (actions === undefined) {
+    swallowPaste(event)
+    input.notify('error', '图片粘贴失败: 无法定位当前会话的输入框')
+    return
+  }
+
+  // Everything below owns the paste: swallow it so the native flow cannot also
+  // attach image parts (which would lock the session to multimodal models).
+  swallowPaste(event)
 
   const clipboardText = (event.clipboardData?.getData('text/plain') ?? '').replaceAll('\uFFFC', '')
 
   try {
-    if (clipboardText !== '') insertIntoDraft(ctx, clipboardText)
+    if (clipboardText !== '' && !insertIntoDraft(actions, clipboardText)) {
+      throw new Error('composer refused the pasted text')
+    }
     for (const [index, file] of files.entries()) {
       if (file.size <= 0) throw new Error(`${file.name || 'clipboard image'} is empty`)
       if (file.size > MAX_IMAGE_BYTES) throw new Error(`${file.name || 'clipboard image'} exceeds 10 MB`)
@@ -267,14 +301,23 @@ async function handlePaste(ctx: Context, event: ClipboardEvent): Promise<void> {
         throw new Error('Image copy response contained an invalid path')
       }
       const draft = input.state.getSnapshot().draft
-      if (draft !== '' && !/\s$/u.test(draft)) insertIntoDraft(ctx, ' ')
+      if (draft !== '' && !/\s$/u.test(draft)) insertIntoDraft(actions, ' ')
       // Markers are appended in order; insertText applies at the caret, which
-      // sits at the end of the previous insertion.
-      if (!insertIntoDraft(ctx, `[pasted image ${index + 1}: ${absolutePath}]`)) {
-        throw new Error('The composer refused the paste; the draft changed while uploading')
+      // sits at the end of the previous insertion. The captured face keeps them
+      // in the Session that received the paste even if the user switches away
+      // while the upload is in flight.
+      if (!insertIntoDraft(actions, `[pasted image ${index + 1}: ${absolutePath}]`)) {
+        throw new Error('composer refused the marker (busy or locked)')
       }
     }
   } catch (error) {
     input.notify('error', `图片粘贴失败: ${messageOf(error)}`)
   }
+}
+
+/** Claim one paste so DSH's native handling cannot also act on it. */
+function swallowPaste(event: ClipboardEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+  event.stopImmediatePropagation()
 }

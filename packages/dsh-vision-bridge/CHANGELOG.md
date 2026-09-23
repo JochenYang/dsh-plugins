@@ -3,6 +3,14 @@
 本插件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.3.5] - 2026-09-23
+
+### Fixed
+
+- 上传期间切换会话不再写错草稿：composer 动作面在粘贴时按会话捕获一次并复用，此前每次插入都重读 `adapter.current`（跟随主视图实时变化），异步上传跨越会话切换时标记会落进另一个会话
+- 无法解析目标时不再静默吞掉粘贴：缺少当前会话、scope 未保留、动作面缺失三条路径改为保留 DSH 原生处理并记录原因；此前事件被 `preventDefault` 吞掉后无任何反馈
+- 失败提示文案改为真实原因（composer 忙/锁定），不再误报"草稿在上传期间变化"
+
 ## [0.3.4] - 2026-09-23
 
 ### Fixed

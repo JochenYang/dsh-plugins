@@ -1,6 +1,6 @@
 {
   "name": "dsh-vision-bridge",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Minimal DSH vision bridge: capability-aware paste routing — image-capable models paste natively, text-only models get cached pastes as path markers read via vision_glance, so text-model sessions stay switchable",
   "type": "module",
   "main": "lib/index.js",
