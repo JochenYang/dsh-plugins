@@ -176,12 +176,17 @@ export function apply(ctx: Context, config: Config): void {
     }
   })
 
-  ctx.inject(['jobs'], (jobsCtx) => {
+  ctx.inject(['jobs'], function notifyOnJobs(jobsCtx) {
     // The jobs seam exposes one event stream; `settled` is the terminal commit.
     // `owners: 'all'` is the process-level filter — this bundle is mounted at the
     // profile layer and has no session scope of its own.
     const onJobEvent: (event: JobEvent) => void = (event) => {
       if (!config.notifyOnJobDone || event.type !== 'settled') return
+      // A teardown settlement force-fails whatever was still running when its
+      // owner (or the whole registry) was disposed. That is cleanup, not an
+      // outcome the user is waiting on — reporting it would turn every session
+      // disposal into a burst of failure alerts.
+      if (event.cause === 'teardown') return
       const { id, label, status, detail } = event.job
       const suffix = detail !== undefined ? ` (${detail})` : ''
       notify(status === 'completed' ? 'success' : 'error', 'DSH 后台任务结束',

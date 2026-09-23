@@ -3,6 +3,12 @@
 本插件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.2] - 2026-09-23
+
+### Fixed
+
+- 任务销毁（`cause: 'teardown'`）不再报成失败：owner 或 jobs 服务被销毁时，存活任务会被强制结算，那是清理而非结果。此前每次会话销户、preset 卸载、profile 重载都会触发一串错误音与推送
+
 ## [0.2.1] - 2026-09-23
 
 ### Fixed
