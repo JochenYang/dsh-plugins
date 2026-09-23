@@ -6,14 +6,16 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
+// Type-only: the ctx.sessionQuery Context merge lives in this package.
+import type {} from '@deepseek-ai/dsh-session-query'
 import { foldEvents } from './fold.js'
 import type { UsageStore } from './store.js'
 
 /**
  * Fold all sessions once. Sessions whose watermark already covers their log are
  * skipped without I/O cost beyond the corpus listing.
- * @param ctx - cordis context with `sessionQuery` mounted.
+ * @param ctx - cordis context with `sessionQuery` mounted (the plugin's `inject`
+ * declares it, so the service is present before apply runs).
  * @param store - the usage store.
  * @param log - diagnostics sink.
  * @returns the number of usage rows added.
@@ -23,8 +25,7 @@ export async function runBackfill(
   store: UsageStore,
   log: (message: string) => void,
 ): Promise<number> {
-  const query = ctx.sessionQuery as SessionQueryEngine | undefined
-  if (query === undefined) return 0
+  const query = ctx.sessionQuery
   let added = 0
   let read = 0
   try {

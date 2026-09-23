@@ -1,6 +1,6 @@
 {
   "name": "dsh-usage-heatmap",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Usage heatmap for DeepSeek Harness: per-day and per-model token usage, cache hit rates, and estimated cost, from the local session event logs",
   "type": "module",
   "main": "lib/index.js",
