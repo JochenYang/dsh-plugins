@@ -2,7 +2,7 @@
  * dsh-usage-heatmap — DSH 用量热力图插件。
  *
  * 数据获取：监听会话事件流（assistant/message 携带适配器上报的 TokenUsage），
- * 并用会话持久化层的只读 inspect() 回填历史日志；两者共用按会话水位线折叠，
+ * 并用 sessionQuery 的 live 优先读取回填历史日志；两者共用按会话水位线折叠，
  * 天然幂等。聚合结果通过 /_dsh/usage-heatmap 路由（JSON API + 单文件页面）
  * 提供给浏览器；客户端 bundle 在侧栏加一个"用量"入口，用悬浮面板 iframe
  * 内嵌同一页面。
@@ -50,7 +50,7 @@ export const Config: z<Config> = z.object({
 })
 
 /** Services the fiber waits for before apply. */
-export const inject = ['webServer', 'sessionPersistence']
+export const inject = ['webServer', 'sessionQuery']
 
 /**
  * Register the heatmap plugin: live usage capture, one startup backfill,

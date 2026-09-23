@@ -3,6 +3,13 @@
 本插件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Fixed
+
+- 历史回填在 dsh 0.1.7 上完全失效：`sessionPersistence.inspect()` 已移除，改走 `sessionQuery`（`listSessions()` + `readSession()`）——同一读法保持 live 优先语义：活跃会话取内存快照、冷会话回退到持久化日志
+- `inject` 从 `sessionPersistence` 改为 `sessionQuery`，tsconfig 补上对应的类型路径映射
+
 ## [0.1.0] - 2026-08-16
 
 首个可安装版本：设置页"用量统计"面板 + 独立标签页。
