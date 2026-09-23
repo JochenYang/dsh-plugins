@@ -3,6 +3,16 @@
 本插件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.3.4] - 2026-09-23
+
+### Fixed
+
+- 浏览器端在 dsh 0.1.7 上完全失效，三处 API 变更逐一适配：
+  - 输入面已从 `<textarea>` 改为 Lexical 驱动的 contenteditable div（`data-composer-input`，位于 `[data-composer-card]` 内），粘贴守卫随之从 `HTMLTextAreaElement` 放开到 `HTMLElement`——此前守卫恒为 false，粘贴从不被拦截
+  - `SessionListState.current` 已移除，当前会话改为从 retention 投影推导（`byId` 中 `retainedBy.mainView > 0` 的行）
+  - 草稿写入改走 `ctx.uiSession` 暴露的 `InputActions`（`captureInsertion()` + `insertText()`）：带 draftRev 版本守卫、单次撤销、不破坏引用 chip；旧的 `selectionStart`/`setDraft` 路径随 textarea 一同消失
+- `dsh.client.inject` 补上 `@deepseek-ai/dsh-client-ui-session`：新增的 `ctx.uiSession` 依赖需要声明加载边
+
 ## [0.3.3] - 2026-09-05
 
 ### Fixed
@@ -36,5 +46,6 @@
 
 > 早期 0.1.x / 0.2.x 为本地开发版本，变更未记录。
 
+[0.3.4]: https://github.com/JochenYang/dsh-plugins/tree/main/packages/dsh-vision-bridge
 [0.3.0]: https://github.com/JochenYang/dsh-plugins/tree/main/packages/dsh-vision-bridge
 [0.3.1]: https://github.com/JochenYang/dsh-plugins/tree/main/packages/dsh-vision-bridge

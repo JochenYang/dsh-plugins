@@ -1,6 +1,6 @@
 {
   "name": "dsh-vision-bridge",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Minimal DSH vision bridge: capability-aware paste routing — image-capable models paste natively, text-only models get cached pastes as path markers read via vision_glance, so text-model sessions stay switchable",
   "type": "module",
   "main": "lib/index.js",
@@ -24,7 +24,8 @@
         "@deepseek-ai/dsh-client-modules",
         "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-model-selection"
+        "@deepseek-ai/dsh-client-ui-model-selection",
+        "@deepseek-ai/dsh-client-ui-session"
       ],
       "platform": "web"
     }

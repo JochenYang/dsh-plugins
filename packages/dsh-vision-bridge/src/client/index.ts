@@ -30,6 +30,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type { InputActions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Same-origin routes served by the host bundle. */
@@ -57,7 +59,7 @@ let lastRuntimeKey = ''
 /** Monotonic refresh counter; stale in-flight responses are discarded. */
 let refreshGeneration = 0
 
-export const inject = ['conversation', 'sessions', 'modelDirectories']
+export const inject = ['conversation', 'sessions', 'modelDirectories', 'uiSession']
 
 interface RuntimeConfig {
   ok: boolean
@@ -98,8 +100,15 @@ function modelHint(ctx: Context, sessionId: string): string {
   return ''
 }
 
-function currentSessionId(ctx: Context): string | undefined {
-  return ctx.sessions.list.getSnapshot().current
+/**
+ * The Session the main view currently occupies, derived from the retention
+ * projection: exactly one row is kept by `mainView` while a session is open.
+ * Returns undefined in the hero (no-session) state.
+ */
+function currentSessionId(ctx: Context): SessionId | undefined {
+  const list = ctx.sessions.list.getSnapshot()
+  return Object.values(list.byId)
+    .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
 }
 
 /**
@@ -152,21 +161,28 @@ async function uploadImage(ctx: Context, sessionId: string, file: File): Promise
   return body
 }
 
+/** The live input machine for one session scope (draft text + phase). */
 interface SessionInputLike {
   state: { getSnapshot(): { draft: string; draftRev: number; phase: string } }
-  setDraft(text: string): void
-  addImages?(ids: readonly string[]): boolean
   notify(level: 'info' | 'error', text: string): void
 }
 
-/** Insert text into the draft at [start, end), returning the new cursor position. */
-function insertAt(input: SessionInputLike, start: number, end: number, text: string): number {
-  if (text === '') return start
-  const snapshot = input.state.getSnapshot()
-  input.setDraft(snapshot.draft.slice(0, start) + text + snapshot.draft.slice(end))
-  return start + text.length
+/**
+ * Insert plain text into the composer draft through the InputActions face
+ * published on the current Session binding. `insertText` is revision-guarded
+ * and applies at the caret (document end when the editor has no selection),
+ * in one undo step, without flattening reference chips.
+ *
+ * Returns false when no Session binding is active (hero state) or the draft
+ * revision moved between capture and edit, so the caller can report instead
+ * of silently dropping the paste.
+ */
+function insertIntoDraft(ctx: Context, text: string): boolean {
+  if (text === '') return true
+  const actions = ctx.uiSession.adapter.current.getSnapshot().props.inputActions as InputActions | undefined
+  if (actions === undefined) return false
+  return actions.insertText(text, actions.captureInsertion())
 }
-
 
 export function apply(ctx: Context): void {
   ctx.effect(() => {
@@ -174,7 +190,7 @@ export function apply(ctx: Context): void {
     // cache is kept fresh by invalidation instead of an await at paste time.
     // The model-selection store is per-session: re-arm it on session switch
     // (session-list churn without a `current` change is ignored).
-    let armedSessionId: string | undefined | null = null
+    let armedSessionId: SessionId | undefined | null = null
     let unsubModel: (() => void) | undefined
     const rearm = (): void => {
       const sessionId = currentSessionId(ctx)
@@ -184,7 +200,7 @@ export function apply(ctx: Context): void {
       unsubModel = undefined
       if (sessionId !== undefined) {
         try {
-          const store = ctx.modelDirectories.directoryFor(sessionId as SessionId).store
+          const store = ctx.modelDirectories.directoryFor(sessionId).store
           unsubModel = store.subscribe(() => { void refreshRuntime(ctx) })
         } catch {
           // model directory not mounted for this session yet
@@ -211,7 +227,9 @@ async function handlePaste(ctx: Context, event: ClipboardEvent): Promise<void> {
   const files = imageFiles(event.clipboardData)
   if (files.length === 0) return
   const target = event.target
-  if (!(target instanceof HTMLTextAreaElement) || target.closest('[data-composer-card]') === null) return
+  // 0.1.7's composer text surface is a Lexical-backed contenteditable div
+  // (`data-composer-input`) inside the composer card, not a textarea.
+  if (!(target instanceof HTMLElement) || target.closest('[data-composer-card]') === null) return
   if (pasteMode === 'native') return // let DSH's native paste handling run
   if (pasteMode === 'auto' && canAcceptImages) return // model reads natively; let DSH's paste flow run
   if (files.length > MAX_IMAGES) {
@@ -225,7 +243,7 @@ async function handlePaste(ctx: Context, event: ClipboardEvent): Promise<void> {
   event.stopPropagation()
   event.stopImmediatePropagation()
 
-  const sessionId = ctx.sessions.list.getSnapshot().current
+  const sessionId = currentSessionId(ctx)
   if (sessionId === undefined) return
   const actx = ctx.sessions.scope(sessionId)
   if (actx === undefined) return
@@ -236,12 +254,10 @@ async function handlePaste(ctx: Context, event: ClipboardEvent): Promise<void> {
     return
   }
 
-  const start = Math.max(0, Math.min(target.selectionStart ?? snapshot.draft.length, snapshot.draft.length))
-  const end = Math.max(start, Math.min(target.selectionEnd ?? start, snapshot.draft.length))
   const clipboardText = (event.clipboardData?.getData('text/plain') ?? '').replaceAll('\uFFFC', '')
 
   try {
-    let cursor = insertAt(input, start, end, clipboardText)
+    if (clipboardText !== '') insertIntoDraft(ctx, clipboardText)
     for (const [index, file] of files.entries()) {
       if (file.size <= 0) throw new Error(`${file.name || 'clipboard image'} is empty`)
       if (file.size > MAX_IMAGE_BYTES) throw new Error(`${file.name || 'clipboard image'} exceeds 10 MB`)
@@ -250,16 +266,14 @@ async function handlePaste(ctx: Context, event: ClipboardEvent): Promise<void> {
       if (typeof absolutePath !== 'string' || absolutePath === '') {
         throw new Error('Image copy response contained an invalid path')
       }
-      const marker = `[pasted image ${index + 1}: ${absolutePath}]`
-      if (index === 0 && clipboardText !== '' && !/\s$/u.test(snapshot.draft.slice(0, cursor))) {
-        cursor = insertAt(input, cursor, cursor, ' ')
+      const draft = input.state.getSnapshot().draft
+      if (draft !== '' && !/\s$/u.test(draft)) insertIntoDraft(ctx, ' ')
+      // Markers are appended in order; insertText applies at the caret, which
+      // sits at the end of the previous insertion.
+      if (!insertIntoDraft(ctx, `[pasted image ${index + 1}: ${absolutePath}]`)) {
+        throw new Error('The composer refused the paste; the draft changed while uploading')
       }
-      cursor = insertAt(input, cursor, cursor, marker)
     }
-    requestAnimationFrame(() => {
-      target.focus({ preventScroll: true })
-      target.setSelectionRange(cursor, cursor)
-    })
   } catch (error) {
     input.notify('error', `图片粘贴失败: ${messageOf(error)}`)
   }
