@@ -2,7 +2,9 @@
  * Pack the bundle without dev tooling: consumers only need the built `lib/`,
  * and shipping devDependencies makes the profile install fetch esbuild and
  * typescript from the registry. Builds, stages a minimal package.json next to
- * lib/ + cordis.patch.yml + README.md, and packs there.
+ * every `files` entry plus README.md, and packs there.
+ * @remarks Staging follows the manifest's `files` list, so a declared asset
+ * directory (e.g. `sounds`) ships without a matching change here.
  */
 import { execSync } from 'node:child_process'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -30,8 +32,9 @@ const shipped = {
 await rm(staging, { recursive: true, force: true })
 await mkdir(staging, { recursive: true })
 await writeFile(join(staging, 'package.json'), `${JSON.stringify(shipped, null, 2)}\n`)
-await cp(join(pkgDir, 'lib'), join(staging, 'lib'), { recursive: true })
-await cp(join(pkgDir, 'cordis.patch.yml'), join(staging, 'cordis.patch.yml'))
+for (const entry of pkg.files ?? []) {
+  await cp(join(pkgDir, entry), join(staging, entry), { recursive: true })
+}
 await cp(join(pkgDir, 'README.md'), join(staging, 'README.md'))
 execSync('pnpm pack --pack-destination ..', { cwd: staging, stdio: 'inherit' })
 await rm(staging, { recursive: true, force: true })

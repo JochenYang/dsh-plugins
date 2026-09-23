@@ -17,7 +17,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { JobDoneListener } from '@deepseek-ai/dsh-jobs'
+import type { JobEvent } from '@deepseek-ai/dsh-jobs'
 
 /** Cordis plugin name. */
 export const name = 'dsh-notify-desktop'
@@ -177,13 +177,16 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   ctx.inject(['jobs'], (jobsCtx) => {
-    const onJobDone: JobDoneListener = (snapshot) => {
-      if (!config.notifyOnJobDone) return
-      const ok = snapshot.status === 'completed'
-      const detail = snapshot.detail !== undefined ? ` (${snapshot.detail})` : ''
-      notify(ok ? 'success' : 'error', 'DSH 后台任务结束',
-        `${snapshot.label} [${snapshot.id}] — ${snapshot.status}${detail}`)
+    // The jobs seam exposes one event stream; `settled` is the terminal commit.
+    // `owners: 'all'` is the process-level filter — this bundle is mounted at the
+    // profile layer and has no session scope of its own.
+    const onJobEvent: (event: JobEvent) => void = (event) => {
+      if (!config.notifyOnJobDone || event.type !== 'settled') return
+      const { id, label, status, detail } = event.job
+      const suffix = detail !== undefined ? ` (${detail})` : ''
+      notify(status === 'completed' ? 'success' : 'error', 'DSH 后台任务结束',
+        `${label} [${id}] — ${status}${suffix}`)
     }
-    jobsCtx.jobs.onJobDone(onJobDone)
+    jobsCtx.jobs.events.subscribe({ owners: 'all' }, onJobEvent)
   })
 }

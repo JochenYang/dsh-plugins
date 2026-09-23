@@ -1,6 +1,6 @@
 {
   "name": "dsh-notify-desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Desktop notification bundle for DeepSeek Harness: sounds + ntfy push for long turns, job settlement, and tool failures",
   "type": "module",
   "main": "lib/index.js",
