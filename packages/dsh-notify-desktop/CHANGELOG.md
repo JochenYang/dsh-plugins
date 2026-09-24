@@ -3,6 +3,12 @@
 本插件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.3] - 2026-09-23
+
+### Fixed
+
+- 前台命令不再误报：shell 工具的每次调用都会把进程注册成 job，前台命令由该次调用等待（`awaited: true`），结果已经回到模型手里。此前对所有 `settled` 一律提醒，导致模型每执行一条命令都响一次；现在只提醒无人等待的后台任务
+
 ## [0.2.2] - 2026-09-23
 
 ### Fixed

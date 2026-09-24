@@ -187,6 +187,11 @@ export function apply(ctx: Context, config: Config): void {
       // outcome the user is waiting on — reporting it would turn every session
       // disposal into a burst of failure alerts.
       if (event.cause === 'teardown') return
+      // Every shell tool call registers its process as a job and waits on the
+      // foreground ones, so the result already reaches the model. The registry
+      // marks those settlements `awaited` precisely so a completion reporter
+      // skips them; notifying for them rings on every command a turn runs.
+      if (event.awaited) return
       const { id, label, status, detail } = event.job
       const suffix = detail !== undefined ? ` (${detail})` : ''
       notify(status === 'completed' ? 'success' : 'error', 'DSH 后台任务结束',
