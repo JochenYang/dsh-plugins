@@ -3,6 +3,12 @@
 本插件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.4] - 2026-09-28
+
+### Fixed
+
+- 步骤失败不再误报工具错误：dsh 0.2.0 起，失败或中断的步骤会通过 `ToolCallRecovery` 给没有记录到结果的工具调用补写合成的 `tool/result`（错误码 `TOOL_NOT_STARTED` / `TOOL_OUTCOME_UNKNOWN`）。这类结果描述的是 harness 自身的收尾，模型下一步就能看到，不该再响一次错误音
+
 ## [0.2.3] - 2026-09-23
 
 ### Fixed

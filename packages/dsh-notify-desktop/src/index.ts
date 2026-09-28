@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { JobEvent } from '@deepseek-ai/dsh-jobs'
 
 /** Cordis plugin name. */
@@ -172,7 +172,13 @@ export function apply(ctx: Context, config: Config): void {
         notify('success', 'DSH 回合结束', `回合耗时 ${seconds}s`)
       }
     } else if (config.notifyOnToolError && event.type === 'tool/result' && event.data.error !== undefined) {
-      notify('error', 'DSH 工具失败', `${event.data.error.name} (${event.data.error.code})`)
+      // A failed or aborted step closes through ToolCallRecovery, which appends
+      // synthetic results for calls whose outcome was never recorded. Those
+      // report the harness's own interrupted work — the model already sees them
+      // in the next step — so they are not a tool failure the user must hear.
+      const { code } = event.data.error
+      if (code === TOOL_NOT_STARTED || code === TOOL_OUTCOME_UNKNOWN) return
+      notify('error', 'DSH 工具失败', `${event.data.error.name} (${code})`)
     }
   })
 
