@@ -1,34 +1,34 @@
 /**
  * Generate tsconfig.client-paths.json: an exhaustive `@deepseek-ai/*` paths
- * map over the DeepSeek Harness checkout, so `typecheck:client` resolves the
- * full transitive type graph. Without it, skipLibCheck silently turns every
- * unmapped indirect dependency into error-any and the client type gate checks
- * nothing. Rerun after pulling harness updates: `pnpm gen:client-paths`.
+ * map over the installed dsh runtime's declaration files, so `typecheck:client`
+ * resolves the full transitive type graph against the exact surface the plugin
+ * runs on. Without it, skipLibCheck silently turns every unmapped indirect
+ * dependency into error-any and the client type gate checks nothing.
+ * Rerun after updating dsh: `pnpm gen:client-paths`.
  *
- * Harness builds declaration files with `.ts`-extension relative imports
+ * Runtime declarations carry `.ts`-extension relative imports
  * (`from './contract.ts'`), which only resolve under moduleResolution Bundler
  * + allowImportingTsExtensions — the check tsconfig pairs both with noEmit,
  * so the shipped build pipeline (tsc emit + build-client.mjs) stays untouched.
  */
+import { existsSync } from 'node:fs'
 import { readFile, readdir, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const pkgDir = dirname(dirname(fileURLToPath(import.meta.url))) // scripts/ -> package dir
-const harnessDir = resolve(pkgDir, '..', '..', '..', 'deepseek-harness')
-const prefix = relative(pkgDir, harnessDir).replaceAll('\\', '/')
 
-/** Nearest package.json name at or above `dir`; the harness root itself is not a package. */
-async function packageNameFor(dir) {
-  for (let current = dir; current.startsWith(harnessDir) && current !== harnessDir; current = dirname(current)) {
-    try {
-      const pkg = JSON.parse(await readFile(join(current, 'package.json'), 'utf8'))
-      if (typeof pkg.name === 'string' && pkg.name.startsWith('@deepseek-ai/')) return pkg.name
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error
-    }
-  }
-  return undefined
+/** The CLI's own @deepseek-ai tree: complete, and the version the profiles run. */
+const candidates = [
+  resolve(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'profiles', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai'),
+  process.env.APPDATA === undefined
+    ? undefined
+    : join(process.env.APPDATA, 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai'),
+].filter(candidate => candidate !== undefined)
+const runtimeScope = candidates.find(candidate => existsSync(candidate))
+if (runtimeScope === undefined) {
+  throw new Error(`installed dsh runtime not found; looked in:\n  ${candidates.join('\n  ')}`)
 }
 
 /** Every *.d.ts under a lib/types dir, as posix relative paths. */
@@ -41,7 +41,7 @@ async function declarationFiles(dir) {
       if (entry.isDirectory()) {
         await walk(full)
       } else if (entry.name.endsWith('.d.ts')) {
-        found.push(relative(dir, full).replaceAll('\\', '/'))
+        found.push(relativePosix(dir, full))
       }
     }
   }
@@ -49,47 +49,47 @@ async function declarationFiles(dir) {
   return found
 }
 
-const paths = {
-  // Vendored framework types live outside packages/ and have no lib/types tree.
-  '@deepseek-ai/cordis': [`${prefix}/vendor/cordis/lib/types/index.d.ts`],
-  '@deepseek-ai/schemastery': [`${prefix}/vendor/schemastery/lib/types/index.d.ts`],
+function relativePosix(from, to) {
+  return to.slice(from.length + 1).replaceAll('\\', '/')
 }
-const duplicates = []
 
-async function walkPackages(dir) {
-  for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
-    const full = join(dir, entry.name)
-    if (!entry.isDirectory()) continue
-    if (entry.name === 'types' && basename(dirname(full)) === 'lib') {
-      const name = await packageNameFor(full)
-      if (name === undefined) continue
-      for (const file of await declarationFiles(full)) {
-        const stripped = file.replace(/\.d\.ts$/u, '')
-        const key = stripped === 'index'
-          ? name
-          : stripped.endsWith('/index')
-            ? `${name}/${stripped.slice(0, -'/index'.length)}`
-            : `${name}/${stripped}`
-        if (paths[key] !== undefined) duplicates.push(key)
-        paths[key] = [`${prefix}/packages/${relative(join(harnessDir, 'packages'), full).replaceAll('\\', '/')}/${file}`]
-      }
-      continue // one lib/types tree per package; nothing else of interest below
-    }
-    await walkPackages(full)
+const paths = {}
+const missing = []
+
+for (const entry of (await readdir(runtimeScope, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+  if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+  const packageDir = join(runtimeScope, entry.name)
+  let name
+  try {
+    name = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8')).name
+  } catch {
+    continue
+  }
+  if (typeof name !== 'string' || !name.startsWith('@deepseek-ai/')) continue
+  const typesDir = join(packageDir, 'lib', 'types')
+  if (!existsSync(typesDir)) {
+    missing.push(entry.name)
+    continue
+  }
+  for (const file of await declarationFiles(typesDir)) {
+    const stripped = file.replace(/\.d\.ts$/u, '')
+    const key = stripped === 'index'
+      ? name
+      : stripped.endsWith('/index')
+        ? `${name}/${stripped.slice(0, -'/index'.length)}`
+        : `${name}/${stripped}`
+    if (paths[key] !== undefined) throw new Error(`duplicate paths key: ${key}`)
+    paths[key] = [`${typesDir.replaceAll('\\', '/')}/${file}`]
   }
 }
-await walkPackages(join(harnessDir, 'packages'))
 
-if (duplicates.length > 0) {
-  throw new Error(`duplicate paths keys: ${duplicates.join(', ')}`)
-}
-
+const runtimeVersion = JSON.parse(await readFile(join(runtimeScope, '..', '..', 'package.json'), 'utf8')).version
 const header = [
   '// GENERATED by scripts/gen-client-paths.mjs — do not edit by hand.',
-  `// ${Object.keys(paths).length} entries over ${prefix}; regenerate with \`pnpm gen:client-paths\`.`,
+  `// ${Object.keys(paths).length} entries over the installed dsh ${runtimeVersion} runtime; regenerate with \`pnpm gen:client-paths\`.`,
   '',
 ].join('\n')
 const body = JSON.stringify({ compilerOptions: { paths } }, null, 2)
 await writeFile(join(pkgDir, 'tsconfig.client-paths.json'), `${header}${body}\n`)
-console.log(`gen-client-paths: wrote ${Object.keys(paths).length} entries`)
+console.log(`gen-client-paths: wrote ${Object.keys(paths).length} entries over dsh ${runtimeVersion}`)
+if (missing.length > 0) console.log(`no lib/types in: ${missing.join(', ')}`)
