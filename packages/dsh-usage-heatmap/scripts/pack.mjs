@@ -1,6 +1,6 @@
 /**
  * Pack the bundle without dev tooling: consumers only need the built `lib/`
- * (server entry + wrapped client bundle). Adapted from dsh-vision-bridge.
+ * (server entry + wrapped client bundle).
  */
 import { execSync } from 'node:child_process'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'

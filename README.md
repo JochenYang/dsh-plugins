@@ -9,7 +9,6 @@ JochenYang 的 DeepSeek Harness 插件集（monorepo）。
 | [`dsh-git-conventions`](packages/dsh-git-conventions) | 0.1.0 | 模型侧的 Git 提交规范校验（commit message 格式 / 长度 / 正文 / 分支名） |
 | [`dsh-notify-desktop`](packages/dsh-notify-desktop) | 0.2.0 | 桌面通知 + 声音提醒（长回合 / 后台任务结束 / 工具失败），附默认铃声 |
 | [`dsh-usage-heatmap`](packages/dsh-usage-heatmap) | 0.1.0 | 设置页用量热力图：每日 / 按模型的 token 用量、缓存命中率与成本 |
-| [`dsh-vision-bridge`](packages/dsh-vision-bridge) | 0.3.0 | 视觉桥接：贴图转路径标记，纯文本模型也能"看图" |
 | [`dsh-pet`](packages/dsh-pet) | 0.2.0 | 桌面宠物：右下角小狐狸，随 LLM 回复情绪播放序列帧动画，设置页可调（大小/位置/速度/帧映射） |
 
 ## 安装
@@ -29,7 +28,6 @@ JochenYang 的 DeepSeek Harness 插件集（monorepo）。
 dsh plugin --profile web add github:JochenYang/dsh-plugins#path:/packages/dsh-git-conventions
 dsh plugin --profile web add github:JochenYang/dsh-plugins#path:/packages/dsh-notify-desktop
 dsh plugin --profile web add github:JochenYang/dsh-plugins#path:/packages/dsh-usage-heatmap
-dsh plugin --profile web add github:JochenYang/dsh-plugins#path:/packages/dsh-vision-bridge
 dsh plugin --profile web add github:JochenYang/dsh-plugins#path:/packages/dsh-pet
 ```
 

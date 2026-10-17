@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pkg: [dsh-git-conventions, dsh-notify-desktop, dsh-usage-heatmap, dsh-vision-bridge, dsh-remote, relay-server]
+        pkg: [dsh-git-conventions, dsh-notify-desktop, dsh-usage-heatmap, dsh-remote, relay-server]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

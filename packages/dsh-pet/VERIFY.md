@@ -11,7 +11,7 @@ $r = Invoke-WebRequest -Uri 'http://127.0.0.1:10790/plugins/dsh-pet/client.js' -
 $r.StatusCode   # 应为 200
 ```
 
-对照：`/plugins/dsh-vision-bridge/client.js` 也应 200。404 说明应用还没重启。
+404 说明应用还没重启。
 
 ## 2. 精灵图资源可达
 
