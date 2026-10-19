@@ -3,6 +3,14 @@
 本插件遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.5] - 2026-10-19
+
+### Fixed
+
+- 「任务完成了却没声音」的三条成因：冷却原本是**全局单一时间戳**，后台任务、工具错误、子智能体会话与主回合共用同一个 5 秒窗口，先响的那条把后到的那条吃掉。现在冷却按来源分槽（`turn` / `turn-child` / `tool` / `job`），一个来源的声音不再压住另一个来源
+- 热重载后回合结束静默：`turnStarts` 是内存 Map，bundle 的 `hmr` 行会在配置变更时重建插件实例，重载前已在跑的回合到 `turn/end` 时查不到开始时间而直接跳过。现在回落到会话日志里查 `turn/start`（比对 turn 号，遇到别的 `turn/end` 就停止回溯），内存 Map 只作快路径
+- 失败的回合播成功音：`turn/end` 此前不论 `reason.kind` 都走成功音。现在 `error` 走错误音与「DSH 回合失败」标题；用户主动中断（`aborted`）仍保留成功音——人就在屏幕前，不该被告警
+
 ## [0.2.4] - 2026-09-28
 
 ### Fixed

@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionSeq, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { JobEvent } from '@deepseek-ai/dsh-jobs'
 
 /** Cordis plugin name. */
@@ -56,6 +56,14 @@ export const Config: z<Config> = z.object({
 
 /** One audible notification: a sound file or the system exclamation. */
 export type Sound = { kind: 'file'; path: string } | { kind: 'exclamation' }
+
+/**
+ * Notification sources. Each owns a cooldown slot, so one source's sound can
+ * never suppress another's. The single shared timestamp this replaces let a
+ * background job, a tool error, or a subagent turn swallow the main turn's
+ * completion sound — reported as "the task finished but nothing played".
+ */
+type Channel = 'turn' | 'turn-child' | 'tool' | 'job'
 
 /** @returns the platform's player command and arguments for one sound. */
 function playerCommand(sound: Sound): { command: string; args: string[] } {
@@ -150,27 +158,63 @@ export function apply(ctx: Context, config: Config): void {
   const logError = (message: string): void => {
     ctx.logger('dsh-notify-desktop').warn(message)
   }
-  let lastNotifiedAt = 0
-  const notify = (kind: 'success' | 'error', title: string, message: string): void => {
+  // One timestamp per channel. A shared one let whichever sound fired first —
+  // a background job, a tool error, a subagent turn — swallow the main turn's
+  // completion sound for the next cooldownMs.
+  const lastNotifiedAt = new Map<Channel, number>()
+  const notify = (channel: Channel, kind: 'success' | 'error', title: string, message: string): void => {
     const now = Date.now()
-    if (now - lastNotifiedAt < config.cooldownMs) return
-    lastNotifiedAt = now
+    if (now - (lastNotifiedAt.get(channel) ?? 0) < config.cooldownMs) return
+    lastNotifiedAt.set(channel, now)
     playSound(kind === 'success' ? successSound : errorSound, logError)
     if (config.ntfyTopic !== '') pushNtfy(config.ntfyServer, config.ntfyTopic, title, message, logError)
+  }
+
+  /**
+   * Resolve a turn's start time from the log, for turns this instance did not
+   * observe start.
+   *
+   * `turnStarts` only holds turns that began after the plugin mounted. A hot
+   * reload (the base bundle's `hmr` row) or a session resumed mid-turn empties
+   * that map while the log still records the start, so the log is the
+   * authority and the map is only the fast path.
+   * @param session - the session that just closed a turn.
+   * @param closingTurn - the turn number whose closer was just appended.
+   * @returns the recorded start in epoch milliseconds, or undefined when the log has none.
+   */
+  const loggedTurnStart = (session: Session, closingTurn: number): number | undefined => {
+    for (let seq = session.seq - 2; seq >= 0; seq--) {
+      const prior = session.eventAt(SessionSeq(seq))
+      if (prior === undefined) continue
+      // Meeting another turn's closer means we walked past this turn's
+      // territory — its start is not in the log this session can see.
+      if (prior.type === 'turn/end') return undefined
+      if (prior.type === 'turn/start' && prior.data.turn === closingTurn) return prior.time
+    }
+    return undefined
   }
 
   const turnStarts = new Map<string, number>()
   ctx.on('session/event', (_session, event: SessionEvent) => {
     const sessionId = String(_session.id)
+    // Child sessions (subagents) ring on their own channel: they close far more
+    // often than the main session and would otherwise spend its cooldown.
+    const channel: Channel = (_session.header.delegationDepth ?? 0) > 0 ? 'turn-child' : 'turn'
     if (event.type === 'turn/start') {
-      turnStarts.set(sessionId, Date.now())
+      turnStarts.set(sessionId, event.time)
     } else if (event.type === 'turn/end') {
-      const startedAt = turnStarts.get(sessionId)
+      const startedAt = turnStarts.get(sessionId) ?? loggedTurnStart(_session, event.data.turn)
       turnStarts.delete(sessionId)
-      if (startedAt !== undefined && Date.now() - startedAt >= config.minTurnDurationMs) {
-        const seconds = Math.round((Date.now() - startedAt) / 1000)
-        notify('success', 'DSH 回合结束', `回合耗时 ${seconds}s`)
-      }
+      if (startedAt === undefined) return
+      const elapsed = event.time - startedAt
+      if (elapsed < config.minTurnDurationMs) return
+      const seconds = Math.round(elapsed / 1000)
+      // A turn that ended in failure is not a success: the success chime told
+      // the user "done" for a turn that broke. Cancellation stays on the
+      // success chime — the user caused it and is still watching the screen.
+      const failed = event.data.reason.kind === 'error'
+      notify(channel, failed ? 'error' : 'success',
+        failed ? 'DSH 回合失败' : 'DSH 回合结束', `回合耗时 ${seconds}s`)
     } else if (config.notifyOnToolError && event.type === 'tool/result' && event.data.error !== undefined) {
       // A failed or aborted step closes through ToolCallRecovery, which appends
       // synthetic results for calls whose outcome was never recorded. Those
@@ -178,7 +222,7 @@ export function apply(ctx: Context, config: Config): void {
       // in the next step — so they are not a tool failure the user must hear.
       const { code } = event.data.error
       if (code === TOOL_NOT_STARTED || code === TOOL_OUTCOME_UNKNOWN) return
-      notify('error', 'DSH 工具失败', `${event.data.error.name} (${code})`)
+      notify('tool', 'error', 'DSH 工具失败', `${event.data.error.name} (${code})`)
     }
   })
 
@@ -200,7 +244,7 @@ export function apply(ctx: Context, config: Config): void {
       if (event.awaited) return
       const { id, label, status, detail } = event.job
       const suffix = detail !== undefined ? ` (${detail})` : ''
-      notify(status === 'completed' ? 'success' : 'error', 'DSH 后台任务结束',
+      notify('job', status === 'completed' ? 'success' : 'error', 'DSH 后台任务结束',
         `${label} [${id}] — ${status}${suffix}`)
     }
     jobsCtx.jobs.events.subscribe({ owners: 'all' }, onJobEvent)
